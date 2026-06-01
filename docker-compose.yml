@@ -76,19 +76,22 @@ services:
     container_name: android-emulator-1
     privileged: true
     environment:
-      EMULATOR_DEVICE: "Nexus 5"
+      EMULATOR_DEVICE: "Pixel 4"
       WEB_VNC: "true"
       APPIUM: "false"
       EMULATOR_TIMEOUT: 0
       EMULATOR_NO_BOOT_ANIM: "true"
-      # Hand the Android VM 4 internal CPUs and 8 GB RAM, leaving 4 host CPUs
-      # for the emulator binary itself (swiftshader rendering, noVNC streaming).
-      EMULATOR_ADDITIONAL_ARGS: "-cores 4 -memory 8192 -no-snapshot-save"
+      # -gpu host uses the actual Intel iGPU via /dev/dri/renderD128
+      EMULATOR_ADDITIONAL_ARGS: "-cores 4 -memory 8192 -no-snapshot-save -gpu host"
     ports:
       - "6080:6080"
       - "5554:5554"
     devices:
       - /dev/kvm
+      - /dev/dri
+    group_add:
+      - "109"   # render group on host
+      - "44"    # video group on host
     networks:
       - emulator-network
     restart: unless-stopped
@@ -105,12 +108,12 @@ services:
     privileged: true
     profiles: ["scale"]
     environment:
-      EMULATOR_DEVICE: "Nexus 5"
+      EMULATOR_DEVICE: "Pixel 4"
       WEB_VNC: "true"
       APPIUM: "false"
       EMULATOR_TIMEOUT: 0
       EMULATOR_NO_BOOT_ANIM: "true"
-      EMULATOR_ADDITIONAL_ARGS: "-cores 4 -memory 8192 -no-snapshot-save"
+      EMULATOR_ADDITIONAL_ARGS: "-cores 4 -memory 8192 -no-snapshot-save -gpu host"
     ports:
       - "6081:6080"
       - "5555:5554"

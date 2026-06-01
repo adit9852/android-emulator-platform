@@ -47,7 +47,7 @@ services:
       REDIS_URL: redis://redis:6379
       # Pre-warmed pool: backend hands out one of these slots per session.
       # Slot N exposes noVNC on host port VNC_PORT_START+N-1 and ADB on ADB_PORT_START+N-1.
-      MAX_CONCURRENT_EMULATORS: 2
+      MAX_CONCURRENT_EMULATORS: 1
       VNC_PORT_START: 6080
       ADB_PORT_START: 5554
       SLOT_NAME_PREFIX: android-emulator-
@@ -78,6 +78,9 @@ services:
       APPIUM: "false"
       EMULATOR_TIMEOUT: 0
       EMULATOR_NO_BOOT_ANIM: "true"
+      # Hand the Android VM 4 internal CPUs and 8 GB RAM, leaving 4 host CPUs
+      # for the emulator binary itself (swiftshader rendering, noVNC streaming).
+      EMULATOR_ADDITIONAL_ARGS: "-cores 4 -memory 8192 -no-snapshot-save"
     ports:
       - "6080:6080"
       - "5554:5554"
@@ -86,20 +89,25 @@ services:
     networks:
       - emulator-network
     restart: unless-stopped
-    cpus: 4
-    mem_limit: 6g
-    mem_reservation: 4g
+    cpus: 8
+    mem_limit: 10g
+    mem_reservation: 7g
 
+  # emulator-2 kept defined for future scale-up. To activate:
+  #   1. set MAX_CONCURRENT_EMULATORS=2 on backend
+  #   2. docker compose up -d emulator-2
   emulator-2:
     image: budtmo/docker-android:emulator_11.0
     container_name: android-emulator-2
     privileged: true
+    profiles: ["scale"]
     environment:
       EMULATOR_DEVICE: "Nexus 5"
       WEB_VNC: "true"
       APPIUM: "false"
       EMULATOR_TIMEOUT: 0
       EMULATOR_NO_BOOT_ANIM: "true"
+      EMULATOR_ADDITIONAL_ARGS: "-cores 4 -memory 8192 -no-snapshot-save"
     ports:
       - "6081:6080"
       - "5555:5554"
@@ -108,9 +116,9 @@ services:
     networks:
       - emulator-network
     restart: unless-stopped
-    cpus: 4
-    mem_limit: 6g
-    mem_reservation: 4g
+    cpus: 8
+    mem_limit: 10g
+    mem_reservation: 7g
 
   prometheus:
     image: prom/prometheus:latest

@@ -27,14 +27,32 @@ function deriveSlotId(containerName) {
 
 /**
  * Reset emulator state between users — sends KEYCODE_HOME so the next user
- * lands on the launcher instead of inheriting the previous user's app screen.
- * Best-effort: errors are logged but don't fail the session lifecycle.
+ * lands on the launcher, and applies perf tweaks (idempotent) that meaningfully
+ * cut perceived lag inside the emulator. All best-effort.
  */
+const PERF_TWEAKS = [
+  ['settings', 'put', 'global', 'window_animation_scale', '0'],
+  ['settings', 'put', 'global', 'transition_animation_scale', '0'],
+  ['settings', 'put', 'global', 'animator_duration_scale', '0'],
+  ['settings', 'put', 'secure', 'long_press_timeout', '300'],
+];
+
+async function adb(containerName, args) {
+  return execInContainer(containerName, ['adb', 'shell', ...args]);
+}
+
 async function resetSlot(containerName) {
   try {
-    await execInContainer(containerName, ['adb', 'shell', 'input', 'keyevent', 'KEYCODE_HOME']);
+    await adb(containerName, ['input', 'keyevent', 'KEYCODE_HOME']);
   } catch (err) {
-    logger.warn(`reset KEYCODE_HOME on ${containerName} failed: ${err.message}`);
+    logger.warn(`HOME keyevent on ${containerName} failed: ${err.message}`);
+  }
+  for (const cmd of PERF_TWEAKS) {
+    try {
+      await adb(containerName, cmd);
+    } catch (err) {
+      logger.warn(`perf tweak ${cmd.join(' ')} on ${containerName} failed: ${err.message}`);
+    }
   }
 }
 

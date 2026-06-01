@@ -1,0 +1,113 @@
+version: '3.8'
+
+# Android Emulator Platform
+# Backend creates emulator containers on-demand via dockerode (no static emulator
+# services needed). Open firewall ports 6080-6104 to expose noVNC to users.
+
+services:
+  nginx:
+    build:
+      context: .
+      dockerfile: nginx/Dockerfile
+    container_name: emulator-nginx
+    ports:
+      - "80:80"
+    networks:
+      - emulator-network
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: emulator-redis
+    command: redis-server --maxmemory 512mb --maxmemory-policy allkeys-lru
+    networks:
+      - emulator-network
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: emulator-postgres
+    environment:
+      POSTGRES_DB: emulator_platform
+      POSTGRES_USER: emulator_admin
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD required}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - emulator-network
+    restart: unless-stopped
+
+  backend:
+    build: ./backend
+    container_name: emulator-backend
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      DATABASE_URL: postgresql://emulator_admin:${DB_PASSWORD}@postgres:5432/emulator_platform
+      REDIS_URL: redis://redis:6379
+      MAX_CONCURRENT_EMULATORS: ${MAX_CONCURRENT_EMULATORS:-25}
+      EMULATOR_RAM_GB: ${EMULATOR_RAM_GB:-3}
+      EMULATOR_CPU_CORES: ${EMULATOR_CPU_CORES:-2}
+      SESSION_TIMEOUT_MINUTES: ${SESSION_TIMEOUT_MINUTES:-30}
+      EMULATOR_NETWORK: emulator-network
+      EMULATOR_IMAGE: budtmo/docker-android:emulator_11.0
+      VNC_PORT_START: 6080
+      ADB_PORT_START: 5554
+      CORS_ORIGIN: ${CORS_ORIGIN:-*}
+    volumes:
+      # Mount Docker socket so backend can spawn emulator containers
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./apks:/app/apks
+      - ./logs:/app/logs
+    networks:
+      - emulator-network
+    depends_on:
+      - postgres
+      - redis
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: emulator-prometheus
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    ports:
+      - "9090:9090"
+    networks:
+      - emulator-network
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: emulator-grafana
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    networks:
+      - emulator-network
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+networks:
+  emulator-network:
+    name: emulator-network
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.80.0.0/24
+
+volumes:
+  postgres-data:
+  prometheus-data:
+  grafana-data:

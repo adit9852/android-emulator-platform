@@ -31,14 +31,15 @@ function deriveSlotId(containerName) {
  * cut perceived lag inside the emulator. All best-effort.
  */
 const PERF_TWEAKS = [
-  // Kill UI animations — pure perceived-smoothness win.
-  ['settings', 'put', 'global', 'window_animation_scale', '0'],
-  ['settings', 'put', 'global', 'transition_animation_scale', '0'],
-  ['settings', 'put', 'global', 'animator_duration_scale', '0'],
+  // Half-speed animations: snappy but still visibly smooth. We've got hardware GPU
+  // via -gpu host now, so animations are no longer the bottleneck.
+  ['settings', 'put', 'global', 'window_animation_scale', '0.75'],
+  ['settings', 'put', 'global', 'transition_animation_scale', '0.75'],
+  ['settings', 'put', 'global', 'animator_duration_scale', '0.75'],
   ['settings', 'put', 'secure', 'long_press_timeout', '300'],
-  // Drop display from Nexus 5 native (1080x1920 @ 480 dpi) to ~720p @ 320 dpi:
-  // ~56% fewer pixels to render and stream via noVNC. Reversible with `wm size reset`.
-  ['wm', 'size', '720x1280'],
+  // Match Pixel 4 aspect (19:9 = 2.11) at a lighter pixel count.
+  // Pixel 4 native is 1080x2280 @ 440 dpi; we scale to 720x1520 @ 320 dpi.
+  ['wm', 'size', '720x1520'],
   ['wm', 'density', '320'],
   // Force max CPU clocks inside Android so it stops scaling down between frames.
   ['cmd', 'power', 'set-fixed-performance-mode-enabled', 'true'],

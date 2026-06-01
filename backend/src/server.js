@@ -27,13 +27,19 @@ app.use(cors({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Rate limiting
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Limit each IP to 100 requests per windowMs
-  message: 'Too many requests from this IP, please try again later.'
+// Rate limiting — generous because the SPA polls /sessions every 5s.
+// Only rate-limit mutating verbs; reads are unmetered for a single-tenant box.
+const writeLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 60,
+  message: { error: 'Too many write requests, please slow down.' },
+  standardHeaders: true,
+  legacyHeaders: false,
 });
-app.use('/api/', limiter);
+app.use('/api/', (req, res, next) => {
+  if (req.method === 'GET' || req.method === 'HEAD') return next();
+  return writeLimiter(req, res, next);
+});
 
 // Health check endpoint
 app.get('/health', (req, res) => {

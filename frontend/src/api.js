@@ -6,7 +6,14 @@ async function request(path, options = {}) {
     ...options,
   });
   const text = await res.text();
-  const data = text ? JSON.parse(text) : null;
+  let data = null;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    // Non-JSON body (e.g. rate-limiter plain text, nginx 502 HTML).
+    if (!res.ok) throw new Error(text.slice(0, 200) || `Request failed: ${res.status}`);
+    return text;
+  }
   if (!res.ok) {
     const msg = data?.error || data?.message || `Request failed: ${res.status}`;
     throw new Error(typeof msg === 'string' ? msg : JSON.stringify(msg));
@@ -27,4 +34,37 @@ export const api = {
   listSessions: () => request('/emulator/sessions'),
   listContainers: () => request('/emulator/containers'),
   stats: (sessionId) => request(`/emulator/stats/${sessionId}`),
+
+  listApks: () => request('/upload/apks'),
+  uploadApk: async (file, onProgress) => {
+    return new Promise((resolve, reject) => {
+      const form = new FormData();
+      form.append('apk', file);
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', '/api/upload/apk');
+      if (xhr.upload && onProgress) {
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
+        };
+      }
+      xhr.onload = () => {
+        try {
+          const data = xhr.responseText ? JSON.parse(xhr.responseText) : null;
+          if (xhr.status >= 200 && xhr.status < 300) return resolve(data);
+          reject(new Error(data?.error || `Upload failed: ${xhr.status}`));
+        } catch (e) {
+          reject(new Error(xhr.responseText?.slice(0, 200) || 'Upload failed'));
+        }
+      };
+      xhr.onerror = () => reject(new Error('Network error during upload'));
+      xhr.send(form);
+    });
+  },
+  installApk: (sessionId, apkId) =>
+    request('/upload/install', {
+      method: 'POST',
+      body: JSON.stringify({ sessionId, apkId }),
+    }),
+  deleteApk: (apkId) =>
+    request(`/upload/apk/${apkId}`, { method: 'DELETE' }),
 };

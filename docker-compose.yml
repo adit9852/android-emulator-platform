@@ -76,13 +76,18 @@ services:
     container_name: android-emulator-1
     privileged: true
     environment:
-      EMULATOR_DEVICE: "Pixel 4"
+      EMULATOR_DEVICE: "Samsung Galaxy S10"
       WEB_VNC: "true"
       APPIUM: "false"
       EMULATOR_TIMEOUT: 0
       EMULATOR_NO_BOOT_ANIM: "true"
       # -gpu host uses the actual Intel iGPU via /dev/dri/renderD128
       EMULATOR_ADDITIONAL_ARGS: "-cores 4 -memory 8192 -no-snapshot-save -gpu host"
+      # Xvfb at the known-good 1600x900x24+32. Vulkan WSI (-gpu host) needs
+      # full 24-bit + 32-bit alignment; 16-bit produced a black screen.
+      SCREEN_WIDTH: 1600
+      SCREEN_HEIGHT: 900
+      SCREEN_DEPTH: "24+32"
     ports:
       - "6080:6080"
       - "5554:5554"
@@ -92,6 +97,9 @@ services:
     group_add:
       - "109"   # render group on host
       - "44"    # video group on host
+    volumes:
+      # Backend writes uploaded APKs to ./apks; emulator reads them from /tmp/apks.
+      - ./apks:/tmp/apks
     networks:
       - emulator-network
     restart: unless-stopped
@@ -108,7 +116,7 @@ services:
     privileged: true
     profiles: ["scale"]
     environment:
-      EMULATOR_DEVICE: "Pixel 4"
+      EMULATOR_DEVICE: "Samsung Galaxy S10"
       WEB_VNC: "true"
       APPIUM: "false"
       EMULATOR_TIMEOUT: 0

@@ -69,7 +69,10 @@ services:
   # Pre-warmed Android emulator pool (always running, boot once at start).
   # ------------------------------------------------------------------
   emulator-1:
-    image: budtmo/docker-android:emulator_11.0
+    build:
+      context: ./emulator
+      dockerfile: Dockerfile
+    image: android-emulator-platform-emulator:latest
     container_name: android-emulator-1
     privileged: true
     environment:
@@ -97,7 +100,7 @@ services:
   #   1. set MAX_CONCURRENT_EMULATORS=2 on backend
   #   2. docker compose up -d emulator-2
   emulator-2:
-    image: budtmo/docker-android:emulator_11.0
+    image: android-emulator-platform-emulator:latest
     container_name: android-emulator-2
     privileged: true
     profiles: ["scale"]

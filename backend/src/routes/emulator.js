@@ -31,10 +31,17 @@ function deriveSlotId(containerName) {
  * cut perceived lag inside the emulator. All best-effort.
  */
 const PERF_TWEAKS = [
+  // Kill UI animations — pure perceived-smoothness win.
   ['settings', 'put', 'global', 'window_animation_scale', '0'],
   ['settings', 'put', 'global', 'transition_animation_scale', '0'],
   ['settings', 'put', 'global', 'animator_duration_scale', '0'],
   ['settings', 'put', 'secure', 'long_press_timeout', '300'],
+  // Drop display from Nexus 5 native (1080x1920 @ 480 dpi) to ~720p @ 320 dpi:
+  // ~56% fewer pixels to render and stream via noVNC. Reversible with `wm size reset`.
+  ['wm', 'size', '720x1280'],
+  ['wm', 'density', '320'],
+  // Force max CPU clocks inside Android so it stops scaling down between frames.
+  ['cmd', 'power', 'set-fixed-performance-mode-enabled', 'true'],
 ];
 
 async function adb(containerName, args) {

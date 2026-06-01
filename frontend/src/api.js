@@ -10,7 +10,6 @@ async function request(path, options = {}) {
   try {
     data = text ? JSON.parse(text) : null;
   } catch {
-    // Non-JSON body (e.g. rate-limiter plain text, nginx 502 HTML).
     if (!res.ok) throw new Error(text.slice(0, 200) || `Request failed: ${res.status}`);
     return text;
   }
@@ -22,8 +21,8 @@ async function request(path, options = {}) {
 }
 
 export const api = {
-  health: () => request('/../health'),
-  createSession: (device = 'Samsung Galaxy S10', timeout = 30) =>
+  // session lifecycle
+  createSession: (device, timeout = 30) =>
     request('/emulator/session', {
       method: 'POST',
       body: JSON.stringify({ device, timeout }),
@@ -32,10 +31,39 @@ export const api = {
   stopSession: (sessionId) =>
     request(`/emulator/session/${sessionId}`, { method: 'DELETE' }),
   listSessions: () => request('/emulator/sessions'),
-  listContainers: () => request('/emulator/containers'),
-  stats: (sessionId) => request(`/emulator/stats/${sessionId}`),
-
   listDevices: () => request('/emulator/devices'),
+
+  // controls
+  rotate: (sessionId) =>
+    request(`/emulator/rotate/${sessionId}`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }),
+  key: (sessionId, key) =>
+    request(`/emulator/key/${sessionId}`, {
+      method: 'POST',
+      body: JSON.stringify({ key }),
+    }),
+  gps: (sessionId, lat, lng) =>
+    request(`/emulator/gps/${sessionId}`, {
+      method: 'POST',
+      body: JSON.stringify({ lat, lng }),
+    }),
+  battery: (sessionId, level) =>
+    request(`/emulator/battery/${sessionId}`, {
+      method: 'POST',
+      body: JSON.stringify({ level }),
+    }),
+  network: (sessionId, profile) =>
+    request(`/emulator/network/${sessionId}`, {
+      method: 'POST',
+      body: JSON.stringify({ profile }),
+    }),
+  openUrl: (sessionId, url) =>
+    request(`/emulator/url/${sessionId}`, {
+      method: 'POST',
+      body: JSON.stringify({ url }),
+    }),
   screenshot: async (sessionId) => {
     const res = await fetch(`/api/emulator/screenshot/${sessionId}`, { method: 'POST' });
     if (!res.ok) {
@@ -44,20 +72,11 @@ export const api = {
     }
     return res.blob();
   },
-  rotate: (sessionId) =>
-    request(`/emulator/rotate/${sessionId}`, {
-      method: 'POST',
-      body: JSON.stringify({}),
-    }),
-  installFromUrl: (url, name) =>
-    request('/upload/apk-url', {
-      method: 'POST',
-      body: JSON.stringify({ url, name }),
-    }),
 
+  // APKs
   listApks: () => request('/upload/apks'),
-  uploadApk: async (file, onProgress) => {
-    return new Promise((resolve, reject) => {
+  uploadApk: async (file, onProgress) =>
+    new Promise((resolve, reject) => {
       const form = new FormData();
       form.append('apk', file);
       const xhr = new XMLHttpRequest();
@@ -72,18 +91,22 @@ export const api = {
           const data = xhr.responseText ? JSON.parse(xhr.responseText) : null;
           if (xhr.status >= 200 && xhr.status < 300) return resolve(data);
           reject(new Error(data?.error || `Upload failed: ${xhr.status}`));
-        } catch (e) {
+        } catch {
           reject(new Error(xhr.responseText?.slice(0, 200) || 'Upload failed'));
         }
       };
       xhr.onerror = () => reject(new Error('Network error during upload'));
       xhr.send(form);
-    });
-  },
+    }),
   installApk: (sessionId, apkId) =>
     request('/upload/install', {
       method: 'POST',
       body: JSON.stringify({ sessionId, apkId }),
+    }),
+  installFromUrl: (url, name) =>
+    request('/upload/apk-url', {
+      method: 'POST',
+      body: JSON.stringify({ url, name }),
     }),
   deleteApk: (apkId) =>
     request(`/upload/apk/${apkId}`, { method: 'DELETE' }),

@@ -361,6 +361,143 @@ router.post('/rotate/:sessionId', async (req, res) => {
 });
 
 // ============================================================
+// Hardware keys (Home / Back / Recent / Power / Vol Up/Down / Menu)
+// ============================================================
+
+const KEY_MAP = {
+  HOME: 'KEYCODE_HOME',
+  BACK: 'KEYCODE_BACK',
+  RECENT: 'KEYCODE_APP_SWITCH',
+  POWER: 'KEYCODE_POWER',
+  VOLUME_UP: 'KEYCODE_VOLUME_UP',
+  VOLUME_DOWN: 'KEYCODE_VOLUME_DOWN',
+  MENU: 'KEYCODE_MENU',
+  LOCK: 'KEYCODE_SLEEP',
+  WAKE: 'KEYCODE_WAKEUP',
+};
+
+router.post('/key/:sessionId', async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const key = (req.body && req.body.key || '').toUpperCase();
+    const code = KEY_MAP[key];
+    if (!code) {
+      return res.status(400).json({
+        error: `Unknown key '${key}'`,
+        valid: Object.keys(KEY_MAP),
+      });
+    }
+    const session = await get(`session:${sessionId}`);
+    if (!session) return res.status(404).json({ error: 'Session not found' });
+    await adb(session.containerName, ['input', 'keyevent', code]);
+    res.json({ ok: true, key });
+  } catch (err) {
+    logger.error('Key error:', err);
+    res.status(500).json({ error: 'Key failed', details: err.message });
+  }
+});
+
+// ============================================================
+// Sensor / system simulation: GPS, battery, network, locale, open URL
+// ============================================================
+
+router.post('/gps/:sessionId', async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const { lat, lng } = req.body || {};
+    const latN = Number(lat), lngN = Number(lng);
+    if (!Number.isFinite(latN) || !Number.isFinite(lngN)) {
+      return res.status(400).json({ error: 'lat and lng required as numbers' });
+    }
+    if (latN < -90 || latN > 90 || lngN < -180 || lngN > 180) {
+      return res.status(400).json({ error: 'lat/-lng out of range' });
+    }
+    const session = await get(`session:${sessionId}`);
+    if (!session) return res.status(404).json({ error: 'Session not found' });
+    // `adb emu geo fix` takes longitude latitude (in that order).
+    await execInContainer(session.containerName, [
+      'adb', 'emu', 'geo', 'fix', String(lngN), String(latN),
+    ]);
+    res.json({ ok: true, lat: latN, lng: lngN });
+  } catch (err) {
+    logger.error('GPS error:', err);
+    res.status(500).json({ error: 'GPS failed', details: err.message });
+  }
+});
+
+router.post('/battery/:sessionId', async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const level = Number(req.body?.level);
+    if (!Number.isInteger(level) || level < 0 || level > 100) {
+      return res.status(400).json({ error: 'level must be 0..100' });
+    }
+    const session = await get(`session:${sessionId}`);
+    if (!session) return res.status(404).json({ error: 'Session not found' });
+    await adb(session.containerName, ['dumpsys', 'battery', 'set', 'level', String(level)]);
+    // Status: 2=charging, 3=discharging, 5=full
+    const status = level >= 100 ? 5 : level <= 20 ? 3 : 2;
+    await adb(session.containerName, ['dumpsys', 'battery', 'set', 'status', String(status)]);
+    res.json({ ok: true, level, status });
+  } catch (err) {
+    logger.error('Battery error:', err);
+    res.status(500).json({ error: 'Battery failed', details: err.message });
+  }
+});
+
+const NET_PROFILES = {
+  full:    { delay: 'none', speed: 'full' },
+  wifi:    { delay: 'none', speed: 'full' },
+  '5g':    { delay: 'none', speed: 'lte' },
+  '4g':    { delay: 'lte',  speed: 'lte' },
+  '3g':    { delay: 'umts', speed: 'umts' },
+  edge:    { delay: 'edge', speed: 'edge' },
+  gprs:    { delay: 'gprs', speed: 'gprs' },
+  offline: { delay: 'none', speed: '0' },
+};
+
+router.post('/network/:sessionId', async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const profile = String(req.body?.profile || 'full').toLowerCase();
+    const cfg = NET_PROFILES[profile];
+    if (!cfg) {
+      return res.status(400).json({
+        error: `Unknown network profile '${profile}'`,
+        valid: Object.keys(NET_PROFILES),
+      });
+    }
+    const session = await get(`session:${sessionId}`);
+    if (!session) return res.status(404).json({ error: 'Session not found' });
+    await execInContainer(session.containerName, ['adb', 'emu', 'network', 'delay', cfg.delay]);
+    await execInContainer(session.containerName, ['adb', 'emu', 'network', 'speed', cfg.speed]);
+    res.json({ ok: true, profile, ...cfg });
+  } catch (err) {
+    logger.error('Network error:', err);
+    res.status(500).json({ error: 'Network failed', details: err.message });
+  }
+});
+
+router.post('/url/:sessionId', async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const url = req.body?.url;
+    if (!url || !/^https?:\/\//i.test(url)) {
+      return res.status(400).json({ error: 'http(s) url required' });
+    }
+    const session = await get(`session:${sessionId}`);
+    if (!session) return res.status(404).json({ error: 'Session not found' });
+    await adb(session.containerName, [
+      'am', 'start', '-a', 'android.intent.action.VIEW', '-d', url,
+    ]);
+    res.json({ ok: true, url });
+  } catch (err) {
+    logger.error('Open URL error:', err);
+    res.status(500).json({ error: 'Open URL failed', details: err.message });
+  }
+});
+
+// ============================================================
 // Existing diagnostics
 // ============================================================
 

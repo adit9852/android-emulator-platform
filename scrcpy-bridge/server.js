@@ -95,26 +95,42 @@ wss.on('connection', (ws, req) => {
     });
 
     const ff = spawn('ffmpeg', [
-      '-hide_banner', '-loglevel', 'error',
-      '-fflags', '+nobuffer',
+      '-hide_banner', '-loglevel', 'warning',
+      '-probesize', '32',
+      '-analyzeduration', '0',
+      '-fflags', '+nobuffer+flush_packets',
       '-flags', 'low_delay',
       '-f', 'h264',
-      '-r', '25',
       '-i', 'pipe:0',
-      '-c', 'copy',
+      '-c:v', 'copy',
       '-an',
       '-f', 'mp4',
       '-movflags', '+frag_keyframe+empty_moov+default_base_moof+omit_tfhd_offset',
-      '-frag_duration', '100000',
+      '-frag_duration', '100',
+      '-flush_packets', '1',
       'pipe:1',
     ], { stdio: ['pipe', 'pipe', 'pipe'] });
     ff.stderr.on('data', (d) => log('[ffmpeg]', d.toString().trim()));
     ff.on('exit', (code) => log('ffmpeg exit', code));
 
-    rec.stdout.pipe(ff.stdin);
+    let scrcpyBytes = 0, ffBytes = 0;
+    rec.stdout.on('data', (chunk) => {
+      scrcpyBytes += chunk.length;
+      try { ff.stdin.write(chunk); } catch (e) { log('ff stdin write err', e.message); }
+    });
+    rec.stdout.on('end', () => {
+      log(`screenrecord wrote ${scrcpyBytes} bytes total`);
+      try { ff.stdin.end(); } catch {}
+    });
     ff.stdout.on('data', (chunk) => {
+      ffBytes += chunk.length;
       if (ws.readyState === ws.OPEN) ws.send(chunk, { binary: true });
     });
+    const counter = setInterval(() => {
+      if (rec.exitCode != null) { clearInterval(counter); return; }
+      log(`bytes: screenrecord=${scrcpyBytes} ffmpeg=${ffBytes}`);
+    }, 3000);
+    rec.on('exit', () => clearInterval(counter));
 
     currentRec = rec;
     currentFf = ff;

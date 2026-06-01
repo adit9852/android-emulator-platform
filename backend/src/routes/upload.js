@@ -97,10 +97,38 @@ router.post('/install', async (req, res) => {
     const success = /Success/i.test(output);
     if (!success) logger.warn(`adb install non-success on ${session.containerName}: ${output}`);
 
+    // On success, resolve the package name (aapt) and launch it so the app
+    // appears on screen immediately — installed apps otherwise only land in the
+    // app drawer, which reads as "nothing happened".
+    let packageName = null;
+    let launched = false;
+    if (success) {
+      try {
+        const badging = await execInContainer(session.containerName, [
+          'bash', '-c',
+          `AAPT=$(ls /opt/android/build-tools/*/aapt 2>/dev/null | head -1); "$AAPT" dump badging "${containerPath}" 2>/dev/null | grep -m1 "^package:"`,
+        ]);
+        const m = badging.match(/name='([^']+)'/);
+        packageName = m ? m[1] : null;
+        if (packageName) {
+          await execInContainer(session.containerName, [
+            'adb', 'shell', 'monkey', '-p', packageName,
+            '-c', 'android.intent.category.LAUNCHER', '1',
+          ]);
+          launched = true;
+          logger.info(`APK installed + launched: ${packageName} on ${session.containerName}`);
+        }
+      } catch (e) {
+        logger.warn(`launch after install failed: ${e.message}`);
+      }
+    }
+
     res.json({
       success,
       apkId,
       sessionId,
+      package: packageName,
+      launched,
       output: output.trim().slice(-500),
     });
   } catch (err) {

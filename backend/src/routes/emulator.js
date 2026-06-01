@@ -89,7 +89,29 @@ async function rotateBy(containerName, steps) {
   }
 }
 
+// Disable the Google Discover feed (the "-1" panel) the first time we see an
+// emulator with it still enabled. On this AVD the launcher otherwise sits on
+// that Google feed as its "home" and HOME/swipes can't leave it, so users keep
+// landing on the Google page. Idempotent + cheap once disabled.
+async function disableGoogleFeed(containerName) {
+  try {
+    const enabled = await execInContainer(containerName, [
+      'sh', '-c',
+      'adb shell pm list packages -e com.google.android.googlequicksearchbox',
+    ]);
+    if (/googlequicksearchbox/.test(enabled)) {
+      await adb(containerName, ['pm', 'disable-user', '--user', '0', 'com.google.android.googlequicksearchbox']);
+      await adb(containerName, ['am', 'force-stop', 'com.google.android.apps.nexuslauncher']);
+      logger.info(`Disabled Google feed on ${containerName}`);
+    }
+  } catch (err) {
+    logger.warn(`disable Google feed on ${containerName} failed: ${err.message}`);
+  }
+}
+
 async function resetSlot(containerName, device, slotId) {
+  await disableGoogleFeed(containerName);
+
   try {
     await adb(containerName, ['input', 'keyevent', 'KEYCODE_HOME']);
   } catch (err) {

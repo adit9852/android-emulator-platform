@@ -47,11 +47,13 @@ services:
       REDIS_URL: redis://redis:6379
       # Multi-device pre-warmed pool. Each slot is bound to a specific emulator
       # service in this file (matched on containerName + ports).
+      # vncPort points at the per-device scrcpy-display container (pure phone
+      # view over noVNC), NOT budtmo's own noVNC. adbPort is informational.
       EMULATOR_SLOTS: >-
         [
-          {"slotId":1,"device":"Samsung Galaxy S10","containerName":"android-emulator-1","vncPort":6080,"adbPort":5554},
-          {"slotId":2,"device":"Nexus 5","containerName":"android-emulator-2","vncPort":6081,"adbPort":5555},
-          {"slotId":3,"device":"Samsung Galaxy S6","containerName":"android-emulator-3","vncPort":6082,"adbPort":5556}
+          {"slotId":1,"device":"Samsung Galaxy S10","containerName":"android-emulator-1","vncPort":6090,"adbPort":5554},
+          {"slotId":2,"device":"Nexus 5","containerName":"android-emulator-2","vncPort":6091,"adbPort":5555},
+          {"slotId":3,"device":"Samsung Galaxy S6","containerName":"android-emulator-3","vncPort":6092,"adbPort":5556}
         ]
       MAX_CONCURRENT_EMULATORS: 3
       VNC_PORT_START: 6080
@@ -180,20 +182,56 @@ services:
     mem_limit: 7g
     mem_reservation: 5g
 
-  # Custom scrcpy bridge: spawns scrcpy + ffmpeg per WS connection, streams
-  # fragmented MP4 (H.264) to browser MSE. Browser plays via native <video>.
-  # Bypasses Xvfb/noVNC/QT-window entirely — pure ADB → scrcpy → MSE pipeline.
-  scrcpy:
+  # scrcpy-display pool — one per emulator. Each renders ONLY the device
+  # screen (scrcpy --fullscreen, no skin/chrome) into an Xvfb and serves it
+  # over the proven x11vnc + noVNC pipeline. Browser input flows back natively
+  # (noVNC -> X -> scrcpy -> device). Host port 609N maps to the slot's vncPort.
+  scrcpy-1:
     build:
-      context: ./scrcpy-bridge
+      context: ./scrcpy-display
       dockerfile: Dockerfile
-    image: scrcpy-bridge:local
-    container_name: emulator-scrcpy
+    image: scrcpy-display:local
+    container_name: emulator-scrcpy-1
     environment:
-      EMU_HOSTS: "android-emulator-1 android-emulator-2 android-emulator-3"
+      EMU: "android-emulator-1:5555"
+      MAX_SIZE: "1140"
+      XVFB_W: "540"
+      XVFB_H: "1140"
+    ports:
+      - "6090:6080"
     depends_on:
       - emulator-1
+    networks:
+      - emulator-network
+    restart: unless-stopped
+
+  scrcpy-2:
+    image: scrcpy-display:local
+    container_name: emulator-scrcpy-2
+    environment:
+      EMU: "android-emulator-2:5555"
+      MAX_SIZE: "1140"
+      XVFB_W: "540"
+      XVFB_H: "1140"
+    ports:
+      - "6091:6080"
+    depends_on:
       - emulator-2
+    networks:
+      - emulator-network
+    restart: unless-stopped
+
+  scrcpy-3:
+    image: scrcpy-display:local
+    container_name: emulator-scrcpy-3
+    environment:
+      EMU: "android-emulator-3:5555"
+      MAX_SIZE: "1140"
+      XVFB_W: "540"
+      XVFB_H: "1140"
+    ports:
+      - "6092:6080"
+    depends_on:
       - emulator-3
     networks:
       - emulator-network

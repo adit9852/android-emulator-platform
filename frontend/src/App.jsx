@@ -198,8 +198,13 @@ export default function App() {
       const r = await api.uploadApk(file, setUploadProgress);
       setUploadProgress(null);
       await refreshApks();
-      setInstallMsg(`Uploaded ${r.filename} (${formatBytes(r.size)}).`);
       if (apkInputRef.current) apkInputRef.current.value = '';
+      // Appetize-style: auto-install + launch into the running session.
+      if (activeSession) {
+        await handleInstall(r.apkId);
+      } else {
+        setInstallMsg(`Uploaded ${r.filename}. Start a session, then press Install (✓).`);
+      }
     } catch (e) {
       setUploadProgress(null);
       setInstallMsg(`Upload failed: ${e.message}`);
@@ -224,7 +229,15 @@ export default function App() {
     setInstalling(apkId); setInstallMsg('Installing…');
     try {
       const r = await api.installApk(activeSession.sessionId, apkId);
-      setInstallMsg(r.success ? 'Installed. Check the app drawer.' : `Install failed:\n${r.output || ''}`);
+      if (r.success) {
+        setInstallMsg(
+          r.launched
+            ? `Installed & launched${r.package ? ` ${r.package}` : ''}.`
+            : `Installed${r.package ? ` ${r.package}` : ''} — open it from the app drawer (swipe up).`
+        );
+      } else {
+        setInstallMsg(`Install failed:\n${r.output || ''}`);
+      }
     } catch (e) { setInstallMsg(`Install error: ${e.message}`); }
     finally { setInstalling(null); }
   }
@@ -242,7 +255,7 @@ export default function App() {
     <div className="h-full flex flex-col">
       <Header serverInfo={serverInfo} />
 
-      <div className="flex-1 grid grid-cols-12 gap-4 p-4 overflow-hidden">
+      <div className="flex-1 min-h-0 grid grid-cols-12 gap-4 p-4 overflow-hidden">
         {/* LEFT SIDEBAR */}
         <aside className="col-span-3 flex flex-col gap-4 overflow-y-auto pr-1">
           <DevicePicker
@@ -289,7 +302,7 @@ export default function App() {
         </aside>
 
         {/* CENTER: viewer */}
-        <main className="col-span-6 flex flex-col">
+        <main className="col-span-6 flex flex-col min-h-0 overflow-hidden">
           {activeSession ? (
             <EmulatorViewer
               session={activeSession}
@@ -566,71 +579,35 @@ function WelcomeHero({ pickedDevice, serverFree, onStart }) {
 // Emulator viewer (main content when session is active)
 // ===================================================================
 function EmulatorViewer({ session, orientation, onStop }) {
-  const videoRef = useRef(null);
-  const wsRef = useRef(null);
-  const [status, setStatus] = useState('connecting');
+  // noVNC viewer. We size the phone box in JS (ResizeObserver) so it always
+  // fits the available area while keeping the phone aspect ratio — deterministic,
+  // no CSS aspect-ratio/flex edge cases. noVNC's top "Connected to…" bar is
+  // hidden by clipping ~28px off the top of the iframe.
+  // The scrcpy Xvfb is always a fixed 720x1520. We JS-size the box to the exact
+  // phone aspect ratio so it always fits the available area, and the custom
+  // phone.html page uses noVNC scaleViewport to fill it (auto-maps input through
+  // the scale — no CSS transform, which would break input into the iframe).
+  const RATIO = 720 / 1520; // framebuffer aspect (w/h)
+  const vncSrc = `${(session.vncUrl || '').replace(/\/$/, '')}/phone.html`;
 
-  const udid = `${session.containerName}:5555`;
+  const areaRef = useRef(null);
+  const [box, setBox] = useState({ w: 0, h: 0 });
 
   useEffect(() => {
-    const wsScheme = window.location.protocol === 'https:' ? 'wss' : 'ws';
-    const wsUrl = `${wsScheme}://${window.location.host}/scrcpy/?udid=${encodeURIComponent(udid)}`;
-    const ws = new WebSocket(wsUrl);
-    ws.binaryType = 'arraybuffer';
-    wsRef.current = ws;
-
-    const ms = new MediaSource();
-    const video = videoRef.current;
-    if (!video) return;
-    video.src = URL.createObjectURL(ms);
-
-    let sb = null;
-    const queue = [];
-    function flush() {
-      if (!sb || sb.updating || queue.length === 0) return;
-      try { sb.appendBuffer(queue.shift()); } catch (e) { /* swallow */ }
-    }
-
-    ms.addEventListener('sourceopen', () => {
-      try {
-        sb = ms.addSourceBuffer('video/mp4; codecs="avc1.42E01F"');
-        sb.mode = 'sequence';
-        sb.addEventListener('updateend', flush);
-        flush();
-      } catch (e) {
-        setStatus('Codec not supported: ' + e.message);
-      }
-    });
-
-    ws.addEventListener('open', () => setStatus('streaming'));
-    ws.addEventListener('message', (e) => {
-      if (!(e.data instanceof ArrayBuffer)) return;
-      queue.push(new Uint8Array(e.data));
-      flush();
-    });
-    ws.addEventListener('error', () => setStatus('connection error'));
-    ws.addEventListener('close', () => setStatus('disconnected'));
-
-    return () => {
-      try { ws.close(); } catch {}
-      try { if (ms.readyState === 'open') ms.endOfStream(); } catch {}
-      if (video) { try { URL.revokeObjectURL(video.src); } catch {} video.src = ''; }
+    const el = areaRef.current;
+    if (!el) return;
+    const update = () => {
+      const aw = el.clientWidth;
+      const ah = el.clientHeight;
+      if (aw <= 0 || ah <= 0) return;
+      const h = Math.min(ah, aw / RATIO); // fit within both dimensions
+      setBox({ w: Math.floor(h * RATIO), h: Math.floor(h) });
     };
-  }, [session.sessionId, udid]);
-
-  // Forward taps + swipes to the bridge → adb input.
-  function sendTap(e) {
-    const ws = wsRef.current;
-    if (!ws || ws.readyState !== ws.OPEN) return;
-    const video = videoRef.current;
-    if (!video || !video.videoWidth) return;
-    const rect = video.getBoundingClientRect();
-    const sx = video.videoWidth / rect.width;
-    const sy = video.videoHeight / rect.height;
-    const x = (e.clientX - rect.left) * sx;
-    const y = (e.clientY - rect.top) * sy;
-    ws.send(JSON.stringify({ type: 'tap', x, y }));
-  }
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [RATIO]);
 
   return (
     <div className="flex flex-col h-full min-h-0">
@@ -638,7 +615,7 @@ function EmulatorViewer({ session, orientation, onStop }) {
         <div className="flex items-center gap-3">
           <span className="chip-emerald">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-            {status}
+            Live
           </span>
           <div>
             <div className="text-sm font-semibold">{session.device}</div>
@@ -652,16 +629,25 @@ function EmulatorViewer({ session, orientation, onStop }) {
         </button>
       </div>
 
-      <div className="panel flex-1 min-h-0 p-4 bg-gradient-to-b from-ink-800 via-ink-900 to-black flex items-center justify-center overflow-hidden">
-        <video
-          ref={videoRef}
-          autoPlay
-          playsInline
-          muted
-          onClick={sendTap}
-          className="max-h-full max-w-full rounded-2xl bg-black cursor-pointer"
-          style={{ objectFit: 'contain' }}
-        />
+      <div
+        ref={areaRef}
+        className="panel flex-1 min-h-0 p-3 bg-gradient-to-b from-ink-800 via-ink-900 to-black flex items-center justify-center overflow-hidden"
+      >
+        {/* Box is sized exactly to fit the available area at phone aspect, so
+            the whole screen is always visible and the page never scrolls. */}
+        <div
+          className="relative overflow-hidden rounded-2xl bg-black shadow-2xl shadow-black/60"
+          style={{ width: box.w || undefined, height: box.h || undefined }}
+        >
+          <iframe
+            key={session.sessionId}
+            title="emulator"
+            src={vncSrc}
+            allow="clipboard-read; clipboard-write"
+            className="absolute inset-0 border-0 bg-black"
+            style={{ width: '100%', height: '100%', display: 'block' }}
+          />
+        </div>
       </div>
     </div>
   );

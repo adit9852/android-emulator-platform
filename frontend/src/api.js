@@ -44,10 +44,10 @@ export const api = {
     }
     return res.blob();
   },
-  rotate: (sessionId, steps = 1) =>
+  rotate: (sessionId) =>
     request(`/emulator/rotate/${sessionId}`, {
       method: 'POST',
-      body: JSON.stringify({ steps }),
+      body: JSON.stringify({}),
     }),
   installFromUrl: (url, name) =>
     request('/upload/apk-url', {

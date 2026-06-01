@@ -24,7 +24,8 @@ export default function App() {
 
   const [devices, setDevices] = useState([]);
   const [pickedDevice, setPickedDevice] = useState('');
-  const [rotation, setRotation] = useState(0);
+  const [orientation, setOrientation] = useState('portrait');
+  const [rotating, setRotating] = useState(false);
   const [urlInput, setUrlInput] = useState('');
   const [urlBusy, setUrlBusy] = useState(false);
 
@@ -129,7 +130,7 @@ export default function App() {
     try {
       const data = await api.createSession(pickedDevice || undefined, timeout);
       setActiveSession(data);
-      setRotation(0);
+      setOrientation('portrait'); // backend resets to portrait on slot claim
       await refresh();
       await refreshDevices();
     } catch (e) {
@@ -156,13 +157,16 @@ export default function App() {
     }
   }
 
-  async function cycleRotation() {
-    if (!activeSession) return;
+  async function toggleOrientation() {
+    if (!activeSession || rotating) return;
+    setRotating(true);
     try {
-      await api.rotate(activeSession.sessionId, 1);
-      setRotation((r) => (r + 1) % 4);
+      const res = await api.rotate(activeSession.sessionId);
+      setOrientation(res.orientation || (orientation === 'portrait' ? 'landscape' : 'portrait'));
     } catch (e) {
       setError(e.message);
+    } finally {
+      setRotating(false);
     }
   }
 
@@ -252,8 +256,12 @@ export default function App() {
               </h2>
               <div>
                 <button onClick={takeScreenshot}>Screenshot</button>
-                <button onClick={cycleRotation}>
-                  Rotate ({['0°', '90°', '180°', '270°'][rotation]})
+                <button onClick={toggleOrientation} disabled={rotating}>
+                  {rotating
+                    ? 'Rotating…'
+                    : orientation === 'portrait'
+                    ? 'Rotate → Landscape'
+                    : 'Rotate → Portrait'}
                 </button>
                 <button className="danger" onClick={() => stopSession(activeSession.sessionId)}>
                   Stop

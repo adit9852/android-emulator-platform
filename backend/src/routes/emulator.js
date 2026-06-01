@@ -52,12 +52,63 @@ async function adb(containerName, args) {
   return execInContainer(containerName, ['adb', 'shell', ...args]);
 }
 
-async function resetSlot(containerName, device) {
+// Per-slot rotation state in Redis. 0=portrait, 1=landscape, 2=upside-down,
+// 3=landscape-reversed. `adb emu rotate` only steps +1 clockwise per call, so
+// we track absolute state ourselves to compute how many steps to land on a
+// requested orientation.
+const SLOT_ROT_PREFIX = 'slot_rotation:';
+async function getSlotRotation(slotId) {
+  const v = await require('../utils/redis').getRedisClient().get(`${SLOT_ROT_PREFIX}${slotId}`);
+  return v ? Number(v) : 0;
+}
+async function setSlotRotation(slotId, value) {
+  await require('../utils/redis').getRedisClient().set(`${SLOT_ROT_PREFIX}${slotId}`, String(value));
+}
+
+// In-process mutex per slot. Serialises rotate calls so two clicks can't race
+// (both reading `current=1`, both rotating 3 steps → 6 total → wrong end state).
+const slotLocks = new Map();
+async function withSlotLock(slotId, fn) {
+  while (slotLocks.get(slotId)) {
+    await slotLocks.get(slotId).catch(() => {});
+  }
+  let release;
+  const p = new Promise((r) => (release = r));
+  slotLocks.set(slotId, p);
+  try {
+    return await fn();
+  } finally {
+    slotLocks.delete(slotId);
+    release();
+  }
+}
+
+async function rotateBy(containerName, steps) {
+  for (let i = 0; i < steps; i++) {
+    await execInContainer(containerName, ['adb', 'emu', 'rotate']);
+  }
+}
+
+async function resetSlot(containerName, device, slotId) {
   try {
     await adb(containerName, ['input', 'keyevent', 'KEYCODE_HOME']);
   } catch (err) {
     logger.warn(`HOME keyevent on ${containerName} failed: ${err.message}`);
   }
+
+  // Reset orientation back to portrait between users.
+  if (slotId != null) {
+    try {
+      const current = await getSlotRotation(slotId);
+      if (current > 0) {
+        await rotateBy(containerName, (4 - current) % 4);
+      }
+      await setSlotRotation(slotId, 0);
+    } catch (err) {
+      logger.warn(`rotation reset on ${containerName} failed: ${err.message}`);
+    }
+  }
+
   const tweaks = [...COMMON_TWEAKS];
   const dt = DEVICE_TWEAKS[device];
   if (dt) {
@@ -117,7 +168,7 @@ router.post('/session', async (req, res) => {
   }
 
   try {
-    await resetSlot(slot.containerName, slot.device);
+    await resetSlot(slot.containerName, slot.device, slot.slotId);
 
     await query(
       `INSERT INTO sessions (id, container_name, container_id, vnc_port, adb_port, device_type, status, timeout_minutes, ip_address)
@@ -203,7 +254,7 @@ router.delete('/session/:sessionId', async (req, res) => {
       adbPort: session.adbPort || session.adb_port,
       device: session.device || session.device_type,
     };
-    if (slot.containerName) await resetSlot(slot.containerName, slot.device);
+    if (slot.containerName) await resetSlot(slot.containerName, slot.device, slot.slotId);
     await query('UPDATE sessions SET status = $1, ended_at = NOW() WHERE id = $2',
       ['released', sessionId]);
     await del(`session:${sessionId}`);
@@ -277,23 +328,32 @@ router.post('/screenshot/:sessionId', async (req, res) => {
 
 /**
  * POST /api/emulator/rotate/:sessionId
- * Body: { steps?: number }  default 1
- * Rotates the *emulator window* (skin + display) 90° clockwise per step using
- * `adb emu rotate`. This is what produces the visible rotation in noVNC; just
- * writing user_rotation via `settings` only flips the Android window-manager
- * state, not the emulator framebuffer that x11vnc captures.
+ * Toggles between portrait (0) and landscape (1) — collapsing the 4 hardware
+ * rotation states into a 2-state UI. Backend computes how many `adb emu rotate`
+ * 90° steps are needed to land on the target. Tracked per-slot in Redis so
+ * resetSlot can always return the next user to portrait.
  */
 router.post('/rotate/:sessionId', async (req, res) => {
   try {
     const { sessionId } = req.params;
-    const steps = Math.max(1, Math.min(4, Number(req.body?.steps) || 1));
     const session = await get(`session:${sessionId}`);
     if (!session) return res.status(404).json({ error: 'Session not found' });
 
-    for (let i = 0; i < steps; i++) {
-      await execInContainer(session.containerName, ['adb', 'emu', 'rotate']);
+    const slotId = session.slotId ?? deriveSlotId(session.containerName);
+    if (slotId == null) {
+      return res.status(500).json({ error: 'Cannot determine slot id' });
     }
-    res.json({ ok: true, stepsRotated: steps });
+
+    const result = await withSlotLock(slotId, async () => {
+      const current = await getSlotRotation(slotId);     // 0|1|2|3
+      const target = current % 2 === 0 ? 1 : 0;          // portrait (0,2) → 1, landscape (1,3) → 0
+      const steps = (target - current + 4) % 4;
+      await rotateBy(session.containerName, steps);
+      await setSlotRotation(slotId, target);
+      return target;
+    });
+
+    res.json({ orientation: result === 0 ? 'portrait' : 'landscape' });
   } catch (err) {
     logger.error('Rotate error:', err);
     res.status(500).json({ error: 'Rotate failed', details: err.message });

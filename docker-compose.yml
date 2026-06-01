@@ -45,9 +45,15 @@ services:
       PORT: 3001
       DATABASE_URL: postgresql://emulator_admin:${DB_PASSWORD}@postgres:5432/emulator_platform
       REDIS_URL: redis://redis:6379
-      # Pre-warmed pool: backend hands out one of these slots per session.
-      # Slot N exposes noVNC on host port VNC_PORT_START+N-1 and ADB on ADB_PORT_START+N-1.
-      MAX_CONCURRENT_EMULATORS: 1
+      # Multi-device pre-warmed pool. Each slot is bound to a specific emulator
+      # service in this file (matched on containerName + ports).
+      EMULATOR_SLOTS: >-
+        [
+          {"slotId":1,"device":"Samsung Galaxy S10","containerName":"android-emulator-1","vncPort":6080,"adbPort":5554},
+          {"slotId":2,"device":"Nexus 5","containerName":"android-emulator-2","vncPort":6081,"adbPort":5555},
+          {"slotId":3,"device":"Samsung Galaxy S6","containerName":"android-emulator-3","vncPort":6082,"adbPort":5556}
+        ]
+      MAX_CONCURRENT_EMULATORS: 3
       VNC_PORT_START: 6080
       ADB_PORT_START: 5554
       SLOT_NAME_PREFIX: android-emulator-
@@ -107,32 +113,69 @@ services:
     mem_limit: 10g
     mem_reservation: 7g
 
-  # emulator-2 kept defined for future scale-up. To activate:
-  #   1. set MAX_CONCURRENT_EMULATORS=2 on backend
-  #   2. docker compose up -d emulator-2
   emulator-2:
     image: android-emulator-platform-emulator:latest
     container_name: android-emulator-2
     privileged: true
-    profiles: ["scale"]
     environment:
-      EMULATOR_DEVICE: "Samsung Galaxy S10"
+      EMULATOR_DEVICE: "Nexus 5"
       WEB_VNC: "true"
       APPIUM: "false"
       EMULATOR_TIMEOUT: 0
       EMULATOR_NO_BOOT_ANIM: "true"
-      EMULATOR_ADDITIONAL_ARGS: "-cores 4 -memory 8192 -no-snapshot-save -gpu host"
+      EMULATOR_ADDITIONAL_ARGS: "-cores 4 -memory 6144 -no-snapshot-save -gpu host"
+      SCREEN_WIDTH: 1600
+      SCREEN_HEIGHT: 900
+      SCREEN_DEPTH: "24+32"
     ports:
       - "6081:6080"
       - "5555:5554"
     devices:
       - /dev/kvm
+      - /dev/dri
+    group_add:
+      - "109"
+      - "44"
+    volumes:
+      - ./apks:/tmp/apks
     networks:
       - emulator-network
     restart: unless-stopped
-    cpus: 8
-    mem_limit: 10g
-    mem_reservation: 7g
+    cpus: 4
+    mem_limit: 7g
+    mem_reservation: 5g
+
+  emulator-3:
+    image: android-emulator-platform-emulator:latest
+    container_name: android-emulator-3
+    privileged: true
+    environment:
+      EMULATOR_DEVICE: "Samsung Galaxy S6"
+      WEB_VNC: "true"
+      APPIUM: "false"
+      EMULATOR_TIMEOUT: 0
+      EMULATOR_NO_BOOT_ANIM: "true"
+      EMULATOR_ADDITIONAL_ARGS: "-cores 4 -memory 6144 -no-snapshot-save -gpu host"
+      SCREEN_WIDTH: 1600
+      SCREEN_HEIGHT: 900
+      SCREEN_DEPTH: "24+32"
+    ports:
+      - "6082:6080"
+      - "5556:5554"
+    devices:
+      - /dev/kvm
+      - /dev/dri
+    group_add:
+      - "109"
+      - "44"
+    volumes:
+      - ./apks:/tmp/apks
+    networks:
+      - emulator-network
+    restart: unless-stopped
+    cpus: 4
+    mem_limit: 7g
+    mem_reservation: 5g
 
   prometheus:
     image: prom/prometheus:latest

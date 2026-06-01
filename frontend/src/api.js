@@ -35,6 +35,26 @@ export const api = {
   listContainers: () => request('/emulator/containers'),
   stats: (sessionId) => request(`/emulator/stats/${sessionId}`),
 
+  listDevices: () => request('/emulator/devices'),
+  screenshot: async (sessionId) => {
+    const res = await fetch(`/api/emulator/screenshot/${sessionId}`, { method: 'POST' });
+    if (!res.ok) {
+      const t = await res.text().catch(() => '');
+      throw new Error(t.slice(0, 200) || `Screenshot failed: ${res.status}`);
+    }
+    return res.blob();
+  },
+  rotate: (sessionId, steps = 1) =>
+    request(`/emulator/rotate/${sessionId}`, {
+      method: 'POST',
+      body: JSON.stringify({ steps }),
+    }),
+  installFromUrl: (url, name) =>
+    request('/upload/apk-url', {
+      method: 'POST',
+      body: JSON.stringify({ url, name }),
+    }),
+
   listApks: () => request('/upload/apks'),
   uploadApk: async (file, onProgress) => {
     return new Promise((resolve, reject) => {

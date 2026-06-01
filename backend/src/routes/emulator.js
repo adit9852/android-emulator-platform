@@ -1,6 +1,9 @@
 const express = require('express');
 const router = express.Router();
 const { v4: uuidv4 } = require('uuid');
+const fs = require('fs/promises');
+const path = require('path');
+
 const {
   getEmulatorStatus,
   listEmulators,
@@ -8,40 +11,40 @@ const {
   execInContainer,
 } = require('../services/docker');
 const { set, get, del, sadd, srem, smembers } = require('../utils/redis');
-const { acquire, release, available, listAll } = require('../utils/slotPool');
+const { acquire, release, available, availableByDevice, listAll } = require('../utils/slotPool');
 const { query } = require('../database/init');
 const logger = require('../utils/logger');
 
 const ACTIVE_KEY = 'active_sessions';
+const APKS_DIR = process.env.UPLOAD_DIR || '/app/apks';
 
 function publicHost(req) {
   if (process.env.PUBLIC_HOST) return process.env.PUBLIC_HOST;
   return req.hostname;
 }
 
-function deriveSlotId(containerName) {
-  if (!containerName) return null;
-  const m = containerName.match(/-(\d+)$/);
+function deriveSlotId(name) {
+  if (!name) return null;
+  const m = name.match(/-(\d+)$/);
   return m ? parseInt(m[1], 10) : null;
 }
 
 /**
- * Reset emulator state between users — sends KEYCODE_HOME so the next user
- * lands on the launcher, and applies perf tweaks (idempotent) that meaningfully
- * cut perceived lag inside the emulator. All best-effort.
+ * Per-device tweak overrides — controls how heavy each device renders.
+ * Override resolutions are chosen to keep each at ~1.1MP which matches the
+ * Xvfb-friendly load while preserving the device's native aspect ratio.
  */
-const PERF_TWEAKS = [
-  // Half-speed animations: snappy but still visibly smooth. We've got hardware GPU
-  // via -gpu host now, so animations are no longer the bottleneck.
+const DEVICE_TWEAKS = {
+  'Samsung Galaxy S10': { wmSize: '720x1520', wmDensity: '320' },
+  'Nexus 5':            { wmSize: '720x1280', wmDensity: '320' },
+  'Samsung Galaxy S6':  { wmSize: '720x1280', wmDensity: '320' },
+};
+
+const COMMON_TWEAKS = [
   ['settings', 'put', 'global', 'window_animation_scale', '0.75'],
   ['settings', 'put', 'global', 'transition_animation_scale', '0.75'],
   ['settings', 'put', 'global', 'animator_duration_scale', '0.75'],
   ['settings', 'put', 'secure', 'long_press_timeout', '300'],
-  // Match Pixel 4 aspect (19:9 = 2.11) at a lighter pixel count.
-  // Pixel 4 native is 1080x2280 @ 440 dpi; we scale to 720x1520 @ 320 dpi.
-  ['wm', 'size', '720x1520'],
-  ['wm', 'density', '320'],
-  // Force max CPU clocks inside Android so it stops scaling down between frames.
   ['cmd', 'power', 'set-fixed-performance-mode-enabled', 'true'],
 ];
 
@@ -49,56 +52,80 @@ async function adb(containerName, args) {
   return execInContainer(containerName, ['adb', 'shell', ...args]);
 }
 
-async function resetSlot(containerName) {
+async function resetSlot(containerName, device) {
   try {
     await adb(containerName, ['input', 'keyevent', 'KEYCODE_HOME']);
   } catch (err) {
     logger.warn(`HOME keyevent on ${containerName} failed: ${err.message}`);
   }
-  for (const cmd of PERF_TWEAKS) {
-    try {
-      await adb(containerName, cmd);
-    } catch (err) {
-      logger.warn(`perf tweak ${cmd.join(' ')} on ${containerName} failed: ${err.message}`);
+  const tweaks = [...COMMON_TWEAKS];
+  const dt = DEVICE_TWEAKS[device];
+  if (dt) {
+    tweaks.push(['wm', 'size', dt.wmSize], ['wm', 'density', dt.wmDensity]);
+  }
+  for (const cmd of tweaks) {
+    try { await adb(containerName, cmd); } catch (err) {
+      logger.warn(`tweak ${cmd.join(' ')} on ${containerName} failed: ${err.message}`);
     }
   }
 }
 
-/**
- * Create (claim) a session — hands out a pre-warmed slot.
- * POST /api/emulator/session
- */
+// ============================================================
+// Pool / device discovery
+// ============================================================
+
+/** Return the device list with current availability. */
+router.get('/devices', async (req, res) => {
+  const slots = listAll();
+  const free = await availableByDevice();
+  // Aggregate slots by device for the device picker.
+  const byDevice = {};
+  for (const s of slots) {
+    if (!byDevice[s.device]) byDevice[s.device] = { device: s.device, total: 0, free: 0 };
+    byDevice[s.device].total += 1;
+    byDevice[s.device].free = free[s.device] || 0;
+  }
+  res.json({ devices: Object.values(byDevice) });
+});
+
+/** Pool debug (kept from earlier). */
+router.get('/pool', async (req, res) => {
+  res.json({
+    slots: listAll(),
+    free: await available(),
+    freeByDevice: await availableByDevice(),
+  });
+});
+
+// ============================================================
+// Session lifecycle
+// ============================================================
+
 router.post('/session', async (req, res) => {
-  const { timeout = 30 } = req.body || {};
+  const { device = null, timeout = 30 } = req.body || {};
   const sessionId = uuidv4();
 
-  const slot = await acquire();
+  const slot = await acquire(device);
   if (!slot) {
-    const free = await available();
     return res.status(503).json({
-      error: 'All emulators are currently busy — please wait for one to free up.',
-      free,
-      maxConcurrent: parseInt(process.env.MAX_CONCURRENT_EMULATORS || '2', 10),
+      error: device
+        ? `No free '${device}' slot — pick a different device or wait`
+        : 'No free emulator slot',
+      free: await available(),
+      freeByDevice: await availableByDevice(),
     });
   }
 
   try {
-    // Hand the user a clean launcher screen.
-    await resetSlot(slot.containerName);
+    await resetSlot(slot.containerName, slot.device);
 
     await query(
       `INSERT INTO sessions (id, container_name, container_id, vnc_port, adb_port, device_type, status, timeout_minutes, ip_address)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
       [
-        sessionId,
-        slot.containerName,
-        slot.containerName,
-        slot.vncPort,
-        slot.adbPort,
-        'Nexus 5',
-        'active',
-        timeout,
-        req.ip,
+        sessionId, slot.containerName, slot.containerName,
+        slot.vncPort, slot.adbPort, slot.device,
+        'active', timeout, req.ip,
       ]
     );
 
@@ -108,21 +135,19 @@ router.post('/session', async (req, res) => {
       containerName: slot.containerName,
       vncPort: slot.vncPort,
       adbPort: slot.adbPort,
-      device: 'Nexus 5',
+      device: slot.device,
       status: 'active',
       createdAt: new Date().toISOString(),
     };
-
     await set(`session:${sessionId}`, record, timeout * 60);
     await sadd(ACTIVE_KEY, sessionId);
 
-    logger.info(`Session ${sessionId} → slot ${slot.slotId} (${slot.containerName})`);
-
+    logger.info(`Session ${sessionId} → slot ${slot.slotId} (${slot.device})`);
     res.status(201).json({
       ...record,
       vncUrl: `http://${publicHost(req)}:${slot.vncPort}`,
       timeoutMinutes: timeout,
-      message: 'Connected to a pre-warmed emulator. Tap the screen to start.',
+      message: `Connected to ${slot.device}.`,
     });
   } catch (err) {
     logger.error('Error claiming slot:', err);
@@ -131,9 +156,6 @@ router.post('/session', async (req, res) => {
   }
 });
 
-/**
- * Get session status.
- */
 router.get('/session/:sessionId', async (req, res) => {
   try {
     const { sessionId } = req.params;
@@ -146,10 +168,10 @@ router.get('/session/:sessionId', async (req, res) => {
       session = result.rows[0];
     }
     const containerName = session.containerName || session.container_name;
-    const containerStatus = await getEmulatorStatus(containerName);
+    const status = await getEmulatorStatus(containerName);
     res.json({
       sessionId,
-      status: containerStatus ? containerStatus.status : 'unknown',
+      status: status ? status.status : 'unknown',
       vncPort: session.vncPort || session.vnc_port,
       adbPort: session.adbPort || session.adb_port,
       device: session.device || session.device_type,
@@ -162,9 +184,6 @@ router.get('/session/:sessionId', async (req, res) => {
   }
 });
 
-/**
- * Release a session — pushes its slot back into the pool (does NOT stop the container).
- */
 router.delete('/session/:sessionId', async (req, res) => {
   try {
     const { sessionId } = req.params;
@@ -176,27 +195,20 @@ router.delete('/session/:sessionId', async (req, res) => {
       }
       session = result.rows[0];
     }
-
     const containerName = session.containerName || session.container_name;
     const slot = {
       slotId: session.slotId ?? deriveSlotId(containerName),
       containerName,
       vncPort: session.vncPort || session.vnc_port,
       adbPort: session.adbPort || session.adb_port,
+      device: session.device || session.device_type,
     };
-
-    // Best-effort reset before next user picks up this slot.
-    if (slot.containerName) await resetSlot(slot.containerName);
-
-    await query('UPDATE sessions SET status = $1, ended_at = NOW() WHERE id = $2', [
-      'released',
-      sessionId,
-    ]);
+    if (slot.containerName) await resetSlot(slot.containerName, slot.device);
+    await query('UPDATE sessions SET status = $1, ended_at = NOW() WHERE id = $2',
+      ['released', sessionId]);
     await del(`session:${sessionId}`);
     await srem(ACTIVE_KEY, sessionId);
     if (slot.slotId != null) await release(slot);
-
-    logger.info(`Released session ${sessionId} (slot ${slot.slotId})`);
     res.json({ message: 'Session released', sessionId });
   } catch (err) {
     logger.error('Error releasing session:', err);
@@ -204,9 +216,6 @@ router.delete('/session/:sessionId', async (req, res) => {
   }
 });
 
-/**
- * List active sessions.
- */
 router.get('/sessions', async (req, res) => {
   try {
     const ids = await smembers(ACTIVE_KEY);
@@ -217,8 +226,9 @@ router.get('/sessions', async (req, res) => {
     }
     res.json({
       count: sessions.length,
-      maxConcurrent: parseInt(process.env.MAX_CONCURRENT_EMULATORS || '2', 10),
+      maxConcurrent: listAll().length,
       free: await available(),
+      freeByDevice: await availableByDevice(),
       sessions,
     });
   } catch (err) {
@@ -227,16 +237,72 @@ router.get('/sessions', async (req, res) => {
   }
 });
 
+// ============================================================
+// Developer features: screenshot, rotate
+// ============================================================
+
 /**
- * Pool state — useful for debugging.
+ * POST /api/emulator/screenshot/:sessionId
+ * Captures the current Android screen and returns it as image/png.
+ * Strategy: `adb shell screencap -p /sdcard/<f>.png` + adb pull to /tmp/apks
+ * (which is shared with the backend container as /app/apks), then stream the
+ * file out and delete it.
  */
-router.get('/pool', async (req, res) => {
-  res.json({
-    slots: listAll(),
-    free: await available(),
-    maxConcurrent: parseInt(process.env.MAX_CONCURRENT_EMULATORS || '2', 10),
-  });
+router.post('/screenshot/:sessionId', async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const session = await get(`session:${sessionId}`);
+    if (!session) return res.status(404).json({ error: 'Session not found' });
+
+    const filename = `cap-${Date.now()}-${uuidv4().slice(0, 8)}.png`;
+    const sdcardPath = `/sdcard/${filename}`;
+    const sharedPath = `/tmp/apks/${filename}`;
+    const backendPath = path.join(APKS_DIR, filename);
+
+    await execInContainer(session.containerName, ['adb', 'shell', 'screencap', '-p', sdcardPath]);
+    await execInContainer(session.containerName, ['adb', 'pull', sdcardPath, sharedPath]);
+    await execInContainer(session.containerName, ['adb', 'shell', 'rm', sdcardPath]);
+
+    const buf = await fs.readFile(backendPath);
+    await fs.unlink(backendPath).catch(() => {});
+
+    res.setHeader('Content-Type', 'image/png');
+    res.setHeader('Content-Disposition', `attachment; filename="emulator-${session.device.replace(/\W+/g, '_')}-${Date.now()}.png"`);
+    res.end(buf);
+  } catch (err) {
+    logger.error('Screenshot error:', err);
+    res.status(500).json({ error: 'Screenshot failed', details: err.message });
+  }
 });
+
+/**
+ * POST /api/emulator/rotate/:sessionId
+ * Body: { steps?: number }  default 1
+ * Rotates the *emulator window* (skin + display) 90° clockwise per step using
+ * `adb emu rotate`. This is what produces the visible rotation in noVNC; just
+ * writing user_rotation via `settings` only flips the Android window-manager
+ * state, not the emulator framebuffer that x11vnc captures.
+ */
+router.post('/rotate/:sessionId', async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const steps = Math.max(1, Math.min(4, Number(req.body?.steps) || 1));
+    const session = await get(`session:${sessionId}`);
+    if (!session) return res.status(404).json({ error: 'Session not found' });
+
+    for (let i = 0; i < steps; i++) {
+      await execInContainer(session.containerName, ['adb', 'emu', 'rotate']);
+    }
+    res.json({ ok: true, stepsRotated: steps });
+  } catch (err) {
+    logger.error('Rotate error:', err);
+    res.status(500).json({ error: 'Rotate failed', details: err.message });
+  }
+});
+
+// ============================================================
+// Existing diagnostics
+// ============================================================
 
 router.get('/stats/:sessionId', async (req, res) => {
   try {

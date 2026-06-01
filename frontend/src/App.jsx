@@ -1,27 +1,23 @@
 import { useEffect, useState, useCallback } from 'react';
 import { api } from './api.js';
 
-const DEVICES = [
-  'Nexus 5',
-  'Pixel 4',
-  'Samsung Galaxy S6',
-  'Samsung Galaxy S10',
-];
-
 export default function App() {
-  const [device, setDevice] = useState(DEVICES[0]);
   const [timeout, setTimeoutMin] = useState(30);
   const [sessions, setSessions] = useState([]);
   const [activeSession, setActiveSession] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [serverInfo, setServerInfo] = useState({ count: 0, maxConcurrent: 25 });
+  const [serverInfo, setServerInfo] = useState({ count: 0, maxConcurrent: 2, free: 2 });
 
   const refresh = useCallback(async () => {
     try {
       const data = await api.listSessions();
       setSessions(data.sessions || []);
-      setServerInfo({ count: data.count, maxConcurrent: data.maxConcurrent });
+      setServerInfo({
+        count: data.count,
+        maxConcurrent: data.maxConcurrent,
+        free: data.free ?? Math.max(0, data.maxConcurrent - data.count),
+      });
     } catch (e) {
       setError(e.message);
     }
@@ -37,7 +33,7 @@ export default function App() {
     setLoading(true);
     setError(null);
     try {
-      const data = await api.createSession(device, timeout);
+      const data = await api.createSession('Nexus 5', timeout);
       setActiveSession(data);
       await refresh();
     } catch (e) {
@@ -62,24 +58,18 @@ export default function App() {
       <header className="header">
         <h1>Android Emulator Platform</h1>
         <div className="capacity">
-          {serverInfo.count} / {serverInfo.maxConcurrent} sessions
+          {serverInfo.free} of {serverInfo.maxConcurrent} emulators free
         </div>
       </header>
 
       <main className="main">
         <section className="panel">
-          <h2>Launch new session</h2>
+          <h2>Launch a session</h2>
+          <p className="hint">
+            Emulators are pre-warmed — pressing Start gives you an Android instance
+            instantly, no boot wait. Device: <strong>Nexus 5 / Android 11</strong>.
+          </p>
           <div className="form-row">
-            <label>
-              Device
-              <select value={device} onChange={(e) => setDevice(e.target.value)}>
-                {DEVICES.map((d) => (
-                  <option key={d} value={d}>
-                    {d}
-                  </option>
-                ))}
-              </select>
-            </label>
             <label>
               Timeout (min)
               <input
@@ -90,8 +80,12 @@ export default function App() {
                 onChange={(e) => setTimeoutMin(Number(e.target.value))}
               />
             </label>
-            <button onClick={startSession} disabled={loading}>
-              {loading ? 'Starting…' : 'Start Emulator'}
+            <button onClick={startSession} disabled={loading || serverInfo.free === 0}>
+              {loading
+                ? 'Connecting…'
+                : serverInfo.free === 0
+                ? 'All emulators in use'
+                : 'Start Emulator'}
             </button>
           </div>
           {error && <div className="error">{error}</div>}
@@ -108,9 +102,6 @@ export default function App() {
                 Stop
               </button>
             </div>
-            <p className="hint">
-              Emulator boot takes ~60–120s. If the screen is black, wait and reload.
-            </p>
             <iframe
               key={activeSession.sessionId}
               title="emulator"
@@ -130,7 +121,7 @@ export default function App() {
               <thead>
                 <tr>
                   <th>ID</th>
-                  <th>Device</th>
+                  <th>Slot</th>
                   <th>VNC port</th>
                   <th>Status</th>
                   <th></th>
@@ -140,7 +131,7 @@ export default function App() {
                 {sessions.map((s) => (
                   <tr key={s.sessionId}>
                     <td>{s.sessionId.slice(0, 8)}…</td>
-                    <td>{s.device}</td>
+                    <td>#{s.slotId}</td>
                     <td>{s.vncPort}</td>
                     <td>{s.status}</td>
                     <td>

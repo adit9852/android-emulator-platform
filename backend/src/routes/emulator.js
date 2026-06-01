@@ -2,109 +2,147 @@ const express = require('express');
 const router = express.Router();
 const { v4: uuidv4 } = require('uuid');
 const {
-  startEmulator,
-  stopEmulator,
   getEmulatorStatus,
   listEmulators,
   getContainerStats,
+  execInContainer,
 } = require('../services/docker');
 const { set, get, del, sadd, srem, smembers } = require('../utils/redis');
-const { acquire, release, available } = require('../utils/portPool');
+const { acquire, release, available, listAll } = require('../utils/slotPool');
 const { query } = require('../database/init');
 const logger = require('../utils/logger');
 
 const ACTIVE_KEY = 'active_sessions';
 
 function publicHost(req) {
-  // PUBLIC_HOST overrides everything — useful when behind nginx on a VPS.
   if (process.env.PUBLIC_HOST) return process.env.PUBLIC_HOST;
   return req.hostname;
 }
 
+function deriveSlotId(containerName) {
+  if (!containerName) return null;
+  const m = containerName.match(/-(\d+)$/);
+  return m ? parseInt(m[1], 10) : null;
+}
+
 /**
- * Create a new emulator session.
+ * Reset emulator state between users — sends KEYCODE_HOME so the next user
+ * lands on the launcher instead of inheriting the previous user's app screen.
+ * Best-effort: errors are logged but don't fail the session lifecycle.
+ */
+async function resetSlot(containerName) {
+  try {
+    await execInContainer(containerName, ['adb', 'shell', 'input', 'keyevent', 'KEYCODE_HOME']);
+  } catch (err) {
+    logger.warn(`reset KEYCODE_HOME on ${containerName} failed: ${err.message}`);
+  }
+}
+
+/**
+ * Create (claim) a session — hands out a pre-warmed slot.
  * POST /api/emulator/session
  */
 router.post('/session', async (req, res) => {
-  const { device = 'Samsung Galaxy S10', timeout = 30 } = req.body || {};
+  const { timeout = 30 } = req.body || {};
   const sessionId = uuidv4();
 
-  const ports = await acquire();
-  if (!ports) {
-    const freeCount = await available();
+  const slot = await acquire();
+  if (!slot) {
+    const free = await available();
     return res.status(503).json({
-      error: 'All emulator slots are currently in use',
-      free: freeCount,
-      maxConcurrent: parseInt(process.env.MAX_CONCURRENT_EMULATORS || '25', 10),
+      error: 'All emulators are currently busy — please wait for one to free up.',
+      free,
+      maxConcurrent: parseInt(process.env.MAX_CONCURRENT_EMULATORS || '2', 10),
     });
   }
 
   try {
-    logger.info(`Starting emulator session ${sessionId} on vnc=${ports.vncPort}`);
-    const emulator = await startEmulator(sessionId, {
-      device,
-      timeout: timeout * 60,
-      vncPort: ports.vncPort,
-      adbPort: ports.adbPort,
-      memoryGB: parseInt(process.env.EMULATOR_RAM_GB || '3', 10),
-      cpus: parseInt(process.env.EMULATOR_CPU_CORES || '2', 10),
-    });
+    // Hand the user a clean launcher screen.
+    await resetSlot(slot.containerName);
 
     await query(
       `INSERT INTO sessions (id, container_name, container_id, vnc_port, adb_port, device_type, status, timeout_minutes, ip_address)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
       [
         sessionId,
-        emulator.containerName,
-        emulator.containerId,
-        ports.vncPort,
-        ports.adbPort,
-        device,
-        'starting',
+        slot.containerName,
+        slot.containerName,
+        slot.vncPort,
+        slot.adbPort,
+        'Nexus 5',
+        'active',
         timeout,
         req.ip,
       ]
     );
 
-    const sessionRecord = {
+    const record = {
       sessionId,
-      containerName: emulator.containerName,
-      vncPort: ports.vncPort,
-      adbPort: ports.adbPort,
-      device,
-      status: 'starting',
+      slotId: slot.slotId,
+      containerName: slot.containerName,
+      vncPort: slot.vncPort,
+      adbPort: slot.adbPort,
+      device: 'Nexus 5',
+      status: 'active',
       createdAt: new Date().toISOString(),
     };
 
-    await set(`session:${sessionId}`, sessionRecord, timeout * 60);
+    await set(`session:${sessionId}`, record, timeout * 60);
     await sadd(ACTIVE_KEY, sessionId);
 
+    logger.info(`Session ${sessionId} → slot ${slot.slotId} (${slot.containerName})`);
+
     res.status(201).json({
-      ...sessionRecord,
-      vncUrl: `http://${publicHost(req)}:${ports.vncPort}`,
+      ...record,
+      vncUrl: `http://${publicHost(req)}:${slot.vncPort}`,
       timeoutMinutes: timeout,
-      message: 'Emulator is starting. It may take 60–120s to be ready.',
+      message: 'Connected to a pre-warmed emulator. Tap the screen to start.',
     });
-  } catch (error) {
-    logger.error('Error creating emulator session:', error);
-    // Roll back port allocation so the slot doesn't leak.
-    await release(ports);
-    res.status(500).json({
-      error: 'Failed to create emulator session',
-      details: error.message,
-    });
+  } catch (err) {
+    logger.error('Error claiming slot:', err);
+    await release(slot);
+    res.status(500).json({ error: 'Failed to claim emulator slot', details: err.message });
   }
 });
 
 /**
  * Get session status.
- * GET /api/emulator/session/:sessionId
  */
 router.get('/session/:sessionId', async (req, res) => {
   try {
     const { sessionId } = req.params;
     let session = await get(`session:${sessionId}`);
+    if (!session) {
+      const result = await query('SELECT * FROM sessions WHERE id = $1', [sessionId]);
+      if (result.rows.length === 0) {
+        return res.status(404).json({ error: 'Session not found' });
+      }
+      session = result.rows[0];
+    }
+    const containerName = session.containerName || session.container_name;
+    const containerStatus = await getEmulatorStatus(containerName);
+    res.json({
+      sessionId,
+      status: containerStatus ? containerStatus.status : 'unknown',
+      vncPort: session.vncPort || session.vnc_port,
+      adbPort: session.adbPort || session.adb_port,
+      device: session.device || session.device_type,
+      createdAt: session.createdAt || session.created_at,
+      vncUrl: `http://${publicHost(req)}:${session.vncPort || session.vnc_port}`,
+    });
+  } catch (err) {
+    logger.error('Error getting session:', err);
+    res.status(500).json({ error: 'Failed to get session', details: err.message });
+  }
+});
 
+/**
+ * Release a session — pushes its slot back into the pool (does NOT stop the container).
+ */
+router.delete('/session/:sessionId', async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    let session = await get(`session:${sessionId}`);
     if (!session) {
       const result = await query('SELECT * FROM sessions WHERE id = $1', [sessionId]);
       if (result.rows.length === 0) {
@@ -114,89 +152,64 @@ router.get('/session/:sessionId', async (req, res) => {
     }
 
     const containerName = session.containerName || session.container_name;
-    const containerStatus = await getEmulatorStatus(containerName);
-
-    res.json({
-      sessionId,
-      status: containerStatus ? containerStatus.status : 'stopped',
+    const slot = {
+      slotId: session.slotId ?? deriveSlotId(containerName),
+      containerName,
       vncPort: session.vncPort || session.vnc_port,
       adbPort: session.adbPort || session.adb_port,
-      device: session.device || session.device_type,
-      createdAt: session.createdAt || session.created_at,
-      vncUrl: `http://${publicHost(req)}:${session.vncPort || session.vnc_port}`,
-    });
-  } catch (error) {
-    logger.error('Error getting session status:', error);
-    res.status(500).json({ error: 'Failed to get session status', details: error.message });
-  }
-});
+    };
 
-/**
- * Stop emulator session.
- * DELETE /api/emulator/session/:sessionId
- */
-router.delete('/session/:sessionId', async (req, res) => {
-  try {
-    const { sessionId } = req.params;
-    let session = await get(`session:${sessionId}`);
-
-    if (!session) {
-      const result = await query('SELECT * FROM sessions WHERE id = $1', [sessionId]);
-      if (result.rows.length === 0) {
-        return res.status(404).json({ error: 'Session not found' });
-      }
-      session = result.rows[0];
-    }
-
-    const containerName =
-      session.containerName ||
-      session.container_name ||
-      `android-emulator-${sessionId}`;
-    const vncPort = session.vncPort || session.vnc_port;
-    const adbPort = session.adbPort || session.adb_port;
-
-    await stopEmulator(containerName);
+    // Best-effort reset before next user picks up this slot.
+    if (slot.containerName) await resetSlot(slot.containerName);
 
     await query('UPDATE sessions SET status = $1, ended_at = NOW() WHERE id = $2', [
-      'stopped',
+      'released',
       sessionId,
     ]);
-
     await del(`session:${sessionId}`);
     await srem(ACTIVE_KEY, sessionId);
-    if (vncPort && adbPort) await release({ vncPort, adbPort });
+    if (slot.slotId != null) await release(slot);
 
-    logger.info(`Stopped emulator session ${sessionId}`);
-    res.json({ message: 'Session stopped successfully', sessionId });
-  } catch (error) {
-    logger.error('Error stopping session:', error);
-    res.status(500).json({ error: 'Failed to stop session', details: error.message });
+    logger.info(`Released session ${sessionId} (slot ${slot.slotId})`);
+    res.json({ message: 'Session released', sessionId });
+  } catch (err) {
+    logger.error('Error releasing session:', err);
+    res.status(500).json({ error: 'Failed to release session', details: err.message });
   }
 });
 
 /**
- * List all active sessions.
- * GET /api/emulator/sessions
+ * List active sessions.
  */
 router.get('/sessions', async (req, res) => {
   try {
-    const activeSessions = await smembers(ACTIVE_KEY);
+    const ids = await smembers(ACTIVE_KEY);
     const sessions = [];
-
-    for (const sessionId of activeSessions) {
-      const session = await get(`session:${sessionId}`);
-      if (session) sessions.push(session);
+    for (const id of ids) {
+      const s = await get(`session:${id}`);
+      if (s) sessions.push(s);
     }
-
     res.json({
       count: sessions.length,
-      maxConcurrent: parseInt(process.env.MAX_CONCURRENT_EMULATORS || '25', 10),
+      maxConcurrent: parseInt(process.env.MAX_CONCURRENT_EMULATORS || '2', 10),
+      free: await available(),
       sessions,
     });
-  } catch (error) {
-    logger.error('Error listing sessions:', error);
-    res.status(500).json({ error: 'Failed to list sessions', details: error.message });
+  } catch (err) {
+    logger.error('Error listing sessions:', err);
+    res.status(500).json({ error: 'Failed to list sessions', details: err.message });
   }
+});
+
+/**
+ * Pool state — useful for debugging.
+ */
+router.get('/pool', async (req, res) => {
+  res.json({
+    slots: listAll(),
+    free: await available(),
+    maxConcurrent: parseInt(process.env.MAX_CONCURRENT_EMULATORS || '2', 10),
+  });
 });
 
 router.get('/stats/:sessionId', async (req, res) => {
@@ -206,9 +219,9 @@ router.get('/stats/:sessionId', async (req, res) => {
     if (!session) return res.status(404).json({ error: 'Session not found' });
     const stats = await getContainerStats(session.containerName);
     res.json({ sessionId, stats });
-  } catch (error) {
-    logger.error('Error getting emulator stats:', error);
-    res.status(500).json({ error: 'Failed to get stats', details: error.message });
+  } catch (err) {
+    logger.error('Error getting stats:', err);
+    res.status(500).json({ error: 'Failed to get stats', details: err.message });
   }
 });
 
@@ -216,9 +229,9 @@ router.get('/containers', async (req, res) => {
   try {
     const containers = await listEmulators();
     res.json({ count: containers.length, containers });
-  } catch (error) {
-    logger.error('Error listing containers:', error);
-    res.status(500).json({ error: 'Failed to list containers', details: error.message });
+  } catch (err) {
+    logger.error('Error listing containers:', err);
+    res.status(500).json({ error: 'Failed to list containers', details: err.message });
   }
 });
 

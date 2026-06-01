@@ -1,8 +1,6 @@
-version: '3.8'
-
-# Android Emulator Platform
-# Backend creates emulator containers on-demand via dockerode (no static emulator
-# services needed). Open firewall ports 6080-6104 to expose noVNC to users.
+# Android Emulator Platform — pre-warmed pool architecture.
+# emulator-1 and emulator-2 boot once at server start and stay running.
+# Backend hands out a slot per session — no per-session boot wait.
 
 services:
   nginx:
@@ -47,17 +45,16 @@ services:
       PORT: 3001
       DATABASE_URL: postgresql://emulator_admin:${DB_PASSWORD}@postgres:5432/emulator_platform
       REDIS_URL: redis://redis:6379
-      MAX_CONCURRENT_EMULATORS: ${MAX_CONCURRENT_EMULATORS:-25}
-      EMULATOR_RAM_GB: ${EMULATOR_RAM_GB:-3}
-      EMULATOR_CPU_CORES: ${EMULATOR_CPU_CORES:-2}
-      SESSION_TIMEOUT_MINUTES: ${SESSION_TIMEOUT_MINUTES:-30}
-      EMULATOR_NETWORK: emulator-network
-      EMULATOR_IMAGE: budtmo/docker-android:emulator_11.0
+      # Pre-warmed pool: backend hands out one of these slots per session.
+      # Slot N exposes noVNC on host port VNC_PORT_START+N-1 and ADB on ADB_PORT_START+N-1.
+      MAX_CONCURRENT_EMULATORS: 2
       VNC_PORT_START: 6080
       ADB_PORT_START: 5554
+      SLOT_NAME_PREFIX: android-emulator-
+      SESSION_TIMEOUT_MINUTES: ${SESSION_TIMEOUT_MINUTES:-30}
+      PUBLIC_HOST: ${PUBLIC_HOST:-178.63.95.122}
       CORS_ORIGIN: ${CORS_ORIGIN:-*}
     volumes:
-      # Mount Docker socket so backend can spawn emulator containers
       - /var/run/docker.sock:/var/run/docker.sock
       - ./apks:/app/apks
       - ./logs:/app/logs
@@ -67,6 +64,53 @@ services:
       - postgres
       - redis
     restart: unless-stopped
+
+  # ------------------------------------------------------------------
+  # Pre-warmed Android emulator pool (always running, boot once at start).
+  # ------------------------------------------------------------------
+  emulator-1:
+    image: budtmo/docker-android:emulator_11.0
+    container_name: android-emulator-1
+    privileged: true
+    environment:
+      EMULATOR_DEVICE: "Nexus 5"
+      WEB_VNC: "true"
+      APPIUM: "false"
+      EMULATOR_TIMEOUT: 0
+      EMULATOR_NO_BOOT_ANIM: "true"
+    ports:
+      - "6080:6080"
+      - "5554:5554"
+    devices:
+      - /dev/kvm
+    networks:
+      - emulator-network
+    restart: unless-stopped
+    cpus: 4
+    mem_limit: 6g
+    mem_reservation: 4g
+
+  emulator-2:
+    image: budtmo/docker-android:emulator_11.0
+    container_name: android-emulator-2
+    privileged: true
+    environment:
+      EMULATOR_DEVICE: "Nexus 5"
+      WEB_VNC: "true"
+      APPIUM: "false"
+      EMULATOR_TIMEOUT: 0
+      EMULATOR_NO_BOOT_ANIM: "true"
+    ports:
+      - "6081:6080"
+      - "5555:5554"
+    devices:
+      - /dev/kvm
+    networks:
+      - emulator-network
+    restart: unless-stopped
+    cpus: 4
+    mem_limit: 6g
+    mem_reservation: 4g
 
   prometheus:
     image: prom/prometheus:latest

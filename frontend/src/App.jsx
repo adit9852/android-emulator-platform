@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import {
   Smartphone, Home, ArrowLeft, Square, Power,
   Volume2, VolumeX, Camera, RotateCcw,
@@ -235,12 +235,8 @@ export default function App() {
   }
 
   // ---------- iframe URL with no toolbar ----------
-  const vncSrc = useMemo(() => {
-    if (!activeSession) return null;
-    const base = activeSession.vncUrl.replace(/\/$/, '');
-    return `${base}/vnc_lite.html?autoconnect=true&resize=scale&path=websockify`;
-  }, [activeSession]);
-
+  // resize=off → noVNC renders canvas at native 1:1 (720x1520 pixels). Then
+  // we apply a CSS transform: scale(var(--scale)) translate(-x, -y) where
   // ===================================================================
   return (
     <div className="h-full flex flex-col">
@@ -267,6 +263,8 @@ export default function App() {
               setActiveSession({
                 sessionId: s.sessionId,
                 device: s.device,
+                containerName: s.containerName,
+                slotId: s.slotId,
                 vncPort: s.vncPort,
                 vncUrl: `http://${window.location.hostname}:${s.vncPort}`,
               })
@@ -295,7 +293,6 @@ export default function App() {
           {activeSession ? (
             <EmulatorViewer
               session={activeSession}
-              vncSrc={vncSrc}
               orientation={orientation}
               onStop={() => stopSession()}
             />
@@ -568,14 +565,80 @@ function WelcomeHero({ pickedDevice, serverFree, onStart }) {
 // ===================================================================
 // Emulator viewer (main content when session is active)
 // ===================================================================
-function EmulatorViewer({ session, vncSrc, orientation, onStop }) {
+function EmulatorViewer({ session, orientation, onStop }) {
+  const videoRef = useRef(null);
+  const wsRef = useRef(null);
+  const [status, setStatus] = useState('connecting');
+
+  const udid = `${session.containerName}:5555`;
+
+  useEffect(() => {
+    const wsScheme = window.location.protocol === 'https:' ? 'wss' : 'ws';
+    const wsUrl = `${wsScheme}://${window.location.host}/scrcpy/?udid=${encodeURIComponent(udid)}`;
+    const ws = new WebSocket(wsUrl);
+    ws.binaryType = 'arraybuffer';
+    wsRef.current = ws;
+
+    const ms = new MediaSource();
+    const video = videoRef.current;
+    if (!video) return;
+    video.src = URL.createObjectURL(ms);
+
+    let sb = null;
+    const queue = [];
+    function flush() {
+      if (!sb || sb.updating || queue.length === 0) return;
+      try { sb.appendBuffer(queue.shift()); } catch (e) { /* swallow */ }
+    }
+
+    ms.addEventListener('sourceopen', () => {
+      try {
+        sb = ms.addSourceBuffer('video/mp4; codecs="avc1.42E01F"');
+        sb.mode = 'sequence';
+        sb.addEventListener('updateend', flush);
+        flush();
+      } catch (e) {
+        setStatus('Codec not supported: ' + e.message);
+      }
+    });
+
+    ws.addEventListener('open', () => setStatus('streaming'));
+    ws.addEventListener('message', (e) => {
+      if (!(e.data instanceof ArrayBuffer)) return;
+      queue.push(new Uint8Array(e.data));
+      flush();
+    });
+    ws.addEventListener('error', () => setStatus('connection error'));
+    ws.addEventListener('close', () => setStatus('disconnected'));
+
+    return () => {
+      try { ws.close(); } catch {}
+      try { if (ms.readyState === 'open') ms.endOfStream(); } catch {}
+      if (video) { try { URL.revokeObjectURL(video.src); } catch {} video.src = ''; }
+    };
+  }, [session.sessionId, udid]);
+
+  // Forward taps + swipes to the bridge → adb input.
+  function sendTap(e) {
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== ws.OPEN) return;
+    const video = videoRef.current;
+    if (!video || !video.videoWidth) return;
+    const rect = video.getBoundingClientRect();
+    const sx = video.videoWidth / rect.width;
+    const sy = video.videoHeight / rect.height;
+    const x = (e.clientX - rect.left) * sx;
+    const y = (e.clientY - rect.top) * sy;
+    ws.send(JSON.stringify({ type: 'tap', x, y }));
+  }
+
   return (
     <div className="flex flex-col h-full min-h-0">
       <div className="panel mb-3 px-4 py-3 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <span className="chip-emerald">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-            Live
+            {status}
           </span>
           <div>
             <div className="text-sm font-semibold">{session.device}</div>
@@ -589,13 +652,15 @@ function EmulatorViewer({ session, vncSrc, orientation, onStop }) {
         </button>
       </div>
 
-      <div className="panel flex-1 min-h-0 p-3 bg-gradient-to-br from-ink-800 to-ink-900 flex items-center justify-center overflow-hidden">
-        <iframe
-          key={session.sessionId}
-          title="emulator"
-          src={vncSrc}
-          className="emulator-iframe w-full h-full rounded-lg"
-          allow="clipboard-read; clipboard-write"
+      <div className="panel flex-1 min-h-0 p-4 bg-gradient-to-b from-ink-800 via-ink-900 to-black flex items-center justify-center overflow-hidden">
+        <video
+          ref={videoRef}
+          autoPlay
+          playsInline
+          muted
+          onClick={sendTap}
+          className="max-h-full max-w-full rounded-2xl bg-black cursor-pointer"
+          style={{ objectFit: 'contain' }}
         />
       </div>
     </div>

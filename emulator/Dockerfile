@@ -24,4 +24,11 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
       vainfo \
  && rm -rf /var/lib/apt/lists/*
 
+# 3) Replace the budtmo "DOCKER ANDROID" branded X background with a solid black
+#    PNG, so when EMULATOR_NO_SKIN is on, the Xvfb framebuffer behind the
+#    emulator window is pure black instead of a logo.
+RUN printf '\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x10\x00\x00\x00\x10\x08\x02\x00\x00\x00\x90\x91h6\x00\x00\x00\x1fIDATx\x9cc`\x18\x05\xa3`\x14\x8c\x82Q0\nF\xc1(\x18\x05\xa3`\x14\x8c\x82Q0\nF\x01\x00\x00\x00\xff\xff\x03\x00\x00\x10\x00\x01\x97}{i\x00\x00\x00\x00IEND\xaeB`\x82' \
+    > /home/androidusr/docker-android/mixins/configs/display/background.png \
+ && chown androidusr:androidusr /home/androidusr/docker-android/mixins/configs/display/background.png
+
 USER androidusr

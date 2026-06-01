@@ -89,6 +89,7 @@ services:
       EMULATOR_NO_BOOT_ANIM: "true"
       # -gpu host uses the actual Intel iGPU via /dev/dri/renderD128
       EMULATOR_ADDITIONAL_ARGS: "-cores 4 -memory 8192 -no-snapshot-save -gpu host"
+      # EMULATOR_NO_SKIN removed - scrcpy bypasses Xvfb entirely
       # Xvfb at the known-good 1600x900x24+32. Vulkan WSI (-gpu host) needs
       # full 24-bit + 32-bit alignment; 16-bit produced a black screen.
       SCREEN_WIDTH: 1600
@@ -124,6 +125,7 @@ services:
       EMULATOR_TIMEOUT: 0
       EMULATOR_NO_BOOT_ANIM: "true"
       EMULATOR_ADDITIONAL_ARGS: "-cores 4 -memory 6144 -no-snapshot-save -gpu host"
+      # EMULATOR_NO_SKIN removed - scrcpy bypasses Xvfb entirely
       SCREEN_WIDTH: 1600
       SCREEN_HEIGHT: 900
       SCREEN_DEPTH: "24+32"
@@ -156,6 +158,7 @@ services:
       EMULATOR_TIMEOUT: 0
       EMULATOR_NO_BOOT_ANIM: "true"
       EMULATOR_ADDITIONAL_ARGS: "-cores 4 -memory 6144 -no-snapshot-save -gpu host"
+      # EMULATOR_NO_SKIN removed - scrcpy bypasses Xvfb entirely
       SCREEN_WIDTH: 1600
       SCREEN_HEIGHT: 900
       SCREEN_DEPTH: "24+32"
@@ -176,6 +179,25 @@ services:
     cpus: 4
     mem_limit: 7g
     mem_reservation: 5g
+
+  # Custom scrcpy bridge: spawns scrcpy + ffmpeg per WS connection, streams
+  # fragmented MP4 (H.264) to browser MSE. Browser plays via native <video>.
+  # Bypasses Xvfb/noVNC/QT-window entirely — pure ADB → scrcpy → MSE pipeline.
+  scrcpy:
+    build:
+      context: ./scrcpy-bridge
+      dockerfile: Dockerfile
+    image: scrcpy-bridge:local
+    container_name: emulator-scrcpy
+    environment:
+      EMU_HOSTS: "android-emulator-1 android-emulator-2 android-emulator-3"
+    depends_on:
+      - emulator-1
+      - emulator-2
+      - emulator-3
+    networks:
+      - emulator-network
+    restart: unless-stopped
 
   prometheus:
     image: prom/prometheus:latest

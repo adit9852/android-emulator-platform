@@ -96,6 +96,12 @@ async function resetSlot(containerName, device, slotId) {
     logger.warn(`HOME keyevent on ${containerName} failed: ${err.message}`);
   }
 
+  // Kill any stale scrcpy server lingering on the device — otherwise the next
+  // ws-scrcpy attempt fails with "Address already in use" on port 8886.
+  try {
+    await adb(containerName, ['sh', '-c', 'pkill -f scrcpy.Server || true']);
+  } catch {}
+
   // Reset orientation back to portrait between users.
   if (slotId != null) {
     try {

@@ -255,9 +255,9 @@ export default function App() {
     <div className="h-full flex flex-col">
       <Header serverInfo={serverInfo} />
 
-      <div className="flex-1 min-h-0 grid grid-cols-12 gap-4 p-4 overflow-hidden">
+      <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-12 gap-4 p-3 sm:p-4 overflow-y-auto lg:overflow-hidden">
         {/* LEFT SIDEBAR */}
-        <aside className="col-span-3 flex flex-col gap-4 overflow-y-auto pr-1">
+        <aside className="col-span-1 lg:col-span-3 flex flex-col gap-4 lg:overflow-y-auto lg:pr-1 animate-slide-up">
           <DevicePicker
             devices={devices}
             picked={pickedDevice}
@@ -302,7 +302,7 @@ export default function App() {
         </aside>
 
         {/* CENTER: viewer */}
-        <main className="col-span-6 flex flex-col min-h-0 overflow-hidden">
+        <main className="col-span-1 lg:col-span-6 flex flex-col min-h-[78vh] lg:min-h-0 overflow-hidden animate-slide-up delay-1">
           {activeSession ? (
             <EmulatorViewer
               session={activeSession}
@@ -319,7 +319,7 @@ export default function App() {
         </main>
 
         {/* RIGHT: tools panel */}
-        <aside className="col-span-3 overflow-y-auto pl-1">
+        <aside className="col-span-1 lg:col-span-3 lg:overflow-y-auto lg:pl-1 animate-slide-up delay-2">
           <ToolsPanel
             active={activeSession}
             orientation={orientation}
@@ -351,23 +351,25 @@ export default function App() {
 // ===================================================================
 function Header({ serverInfo }) {
   return (
-    <header className="border-b border-ink-700 bg-ink-900/80 backdrop-blur-md px-6 py-3 flex items-center justify-between">
-      <div className="flex items-center gap-3">
-        <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center">
+    <header className="relative z-10 border-b border-white/5 bg-ink-900/40 backdrop-blur-xl px-6 py-3 flex items-center justify-between">
+      <div className="flex items-center gap-3 animate-in-left">
+        <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center shadow-[0_8px_20px_-6px_rgba(99,102,241,0.7)]">
           <Smartphone className="w-5 h-5 text-white" />
         </div>
         <div>
-          <h1 className="text-base font-semibold leading-tight">Emulator Platform</h1>
-          <p className="text-xs text-ink-400 leading-tight">Android in your browser</p>
+          <h1 className="text-[15px] font-semibold leading-tight tracking-tight">
+            <span className="text-gradient">Emulator</span> Platform
+          </h1>
+          <p className="text-[11px] text-ink-400 leading-tight">Android, streamed to your browser</p>
         </div>
       </div>
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 animate-in-right">
         <span className="chip-emerald">
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 live-dot" />
           Online
         </span>
-        <span className="chip-indigo">
-          {serverInfo.free} of {serverInfo.maxConcurrent} free
+        <span className="chip-indigo font-mono">
+          {serverInfo.free}/{serverInfo.maxConcurrent} free
         </span>
       </div>
     </header>
@@ -382,33 +384,38 @@ function DevicePicker({ devices, picked, onPick, timeoutMin, onTimeout, onStart,
     <section className="panel-pad">
       <SectionTitle icon={<Smartphone className="w-4 h-4" />}>Devices</SectionTitle>
       <div className="space-y-2 mt-3">
-        {devices.length === 0 && (
-          <div className="text-xs text-ink-400">Loading devices…</div>
-        )}
-        {devices.map((d) => (
-          <button
-            key={d.device}
-            onClick={() => onPick(d.device)}
-            disabled={d.free === 0 && picked !== d.device}
-            className={`w-full text-left p-3 rounded-lg border-2 transition-all
-              ${picked === d.device
-                ? 'border-indigo-500 bg-indigo-500/10'
-                : 'border-ink-700 bg-ink-900/50 hover:border-ink-600'}
-              ${d.free === 0 && picked !== d.device ? 'opacity-40 cursor-not-allowed' : ''}`}
-          >
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-sm font-medium">{d.device}</div>
-                <div className="text-xs text-ink-400 mt-0.5">Android 11</div>
+        {devices.length === 0 &&
+          [0, 1, 2].map((i) => <div key={i} className="skeleton h-[58px] w-full" />)}
+        {devices.map((d) => {
+          const isPicked = picked === d.device;
+          const busy = d.free === 0 && !isPicked;
+          return (
+            <button
+              key={d.device}
+              onClick={() => onPick(d.device)}
+              disabled={busy}
+              className={`group w-full text-left p-3 rounded-xl border-2 transition-all duration-200
+                ${isPicked
+                  ? 'device-card-active bg-indigo-500/10'
+                  : 'border-white/5 bg-ink-900/40 hover:border-indigo-500/40 hover:-translate-y-0.5'}
+                ${busy ? 'opacity-40 cursor-not-allowed' : ''}`}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors
+                    ${isPicked ? 'bg-indigo-500/25 text-indigo-200' : 'bg-ink-700/60 text-ink-300 group-hover:text-indigo-300'}`}>
+                    <Smartphone className="w-4 h-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium truncate">{d.device}</div>
+                    <div className="text-[11px] text-ink-400 mt-0.5">Android 11 · GPU</div>
+                  </div>
+                </div>
+                {d.free > 0 ? <span className="chip-emerald">Free</span> : <span className="chip-rose">In use</span>}
               </div>
-              {d.free > 0 ? (
-                <span className="chip-emerald">Free</span>
-              ) : (
-                <span className="chip-rose">In use</span>
-              )}
-            </div>
-          </button>
-        ))}
+            </button>
+          );
+        })}
       </div>
 
       <div className="mt-4 space-y-3">
@@ -554,20 +561,28 @@ function ApkLibrary({
 // ===================================================================
 function WelcomeHero({ pickedDevice, serverFree, onStart }) {
   return (
-    <div className="flex-1 flex items-center justify-center">
-      <div className="panel-pad max-w-md text-center">
-        <div className="w-20 h-20 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-indigo-500/20 to-violet-500/20 border border-indigo-500/30 flex items-center justify-center">
-          <Smartphone className="w-10 h-10 text-indigo-400" />
+    <div className="flex-1 flex items-center justify-center p-6">
+      <div className="panel-pad max-w-md w-full text-center py-10 animate-pop">
+        <div className="relative w-24 h-24 mx-auto mb-6">
+          <div className="absolute inset-0 rounded-3xl bg-indigo-500/20 blur-2xl" />
+          <div className="relative w-24 h-24 rounded-3xl bg-gradient-to-br from-indigo-500/25 to-violet-500/25 border border-indigo-500/30 flex items-center justify-center animate-floaty">
+            <Smartphone className="w-11 h-11 text-indigo-300" />
+          </div>
         </div>
-        <h2 className="text-xl font-semibold mb-2">Ready when you are</h2>
-        <p className="text-sm text-ink-400 mb-5">
-          Pre-warmed Android emulators are sitting at the home screen. Pick a device
-          on the left, then start a session — no boot wait.
+        <h2 className="text-2xl font-semibold mb-2 tracking-tight">Ready when you are</h2>
+        <p className="text-sm text-ink-400 mb-6 leading-relaxed max-w-sm mx-auto">
+          Pre-warmed Android emulators are waiting at the home screen — no boot wait.
+          Pick a device on the left and launch instantly.
         </p>
+        <div className="flex flex-wrap items-center justify-center gap-2 mb-7">
+          <span className="chip">⚡ Instant start</span>
+          <span className="chip">🎮 GPU accelerated</span>
+          <span className="chip">📦 Drag-drop APKs</span>
+        </div>
         {pickedDevice && (
-          <button onClick={onStart} disabled={serverFree === 0} className="btn-primary justify-center px-6 py-2.5">
-            <PlayCircle className="w-4 h-4" />
-            Start {pickedDevice}
+          <button onClick={onStart} disabled={serverFree === 0} className="btn-primary justify-center px-7 py-3 text-[15px]">
+            <PlayCircle className="w-5 h-5" />
+            {serverFree === 0 ? 'All devices in use' : `Launch ${pickedDevice}`}
           </button>
         )}
       </div>
@@ -609,6 +624,46 @@ function EmulatorViewer({ session, orientation, onStop }) {
     return () => ro.disconnect();
   }, [RATIO]);
 
+  // ---- gesture capture → adb input (scrcpy's mouse->touch mangles drags) ----
+  const overlayRef = useRef(null);
+  const gestureRef = useRef(null);
+  const sid = session.sessionId;
+
+  function fracFromEvent(e) {
+    const r = overlayRef.current.getBoundingClientRect();
+    return {
+      x: Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)),
+      y: Math.max(0, Math.min(1, (e.clientY - r.top) / r.height)),
+    };
+  }
+  function onPointerDown(e) {
+    e.preventDefault();
+    try { overlayRef.current.setPointerCapture(e.pointerId); } catch {}
+    const f = fracFromEvent(e);
+    gestureRef.current = { x0: f.x, y0: f.y, x: f.x, y: f.y, t0: Date.now(), moved: 0 };
+  }
+  function onPointerMove(e) {
+    const g = gestureRef.current;
+    if (!g) return;
+    const f = fracFromEvent(e);
+    g.moved = Math.max(g.moved, Math.hypot(f.x - g.x0, f.y - g.y0));
+    g.x = f.x; g.y = f.y;
+  }
+  function onPointerUp(e) {
+    const g = gestureRef.current;
+    gestureRef.current = null;
+    if (!g) return;
+    try { overlayRef.current.releasePointerCapture(e.pointerId); } catch {}
+    const dt = Date.now() - g.t0;
+    const TAP = 0.018; // movement under ~2% of the screen = a tap, not a drag
+    if (g.moved < TAP) {
+      if (dt >= 450) api.swipe(sid, g.x0, g.y0, g.x0, g.y0, Math.min(dt, 1500)).catch(() => {}); // long-press
+      else api.tap(sid, g.x0, g.y0).catch(() => {});
+    } else {
+      api.swipe(sid, g.x0, g.y0, g.x, g.y, Math.max(40, Math.min(dt, 800))).catch(() => {});
+    }
+  }
+
   return (
     <div className="flex flex-col h-full min-h-0">
       <div className="panel mb-3 px-4 py-3 flex items-center justify-between">
@@ -646,6 +701,16 @@ function EmulatorViewer({ session, orientation, onStop }) {
             allow="clipboard-read; clipboard-write"
             className="absolute inset-0 border-0 bg-black"
             style={{ width: '100%', height: '100%', display: 'block' }}
+          />
+          {/* Transparent gesture layer on top — all input goes through adb. */}
+          <div
+            ref={overlayRef}
+            className="absolute inset-0 z-10"
+            style={{ touchAction: 'none', cursor: 'crosshair' }}
+            onPointerDown={onPointerDown}
+            onPointerMove={onPointerMove}
+            onPointerUp={onPointerUp}
+            onPointerCancel={onPointerUp}
           />
         </div>
       </div>

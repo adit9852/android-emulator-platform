@@ -22,7 +22,7 @@ sleep 1
 # 2) x11vnc on display :0 (low-latency flags, no password). -defer 1 sends
 #    updates almost immediately; -threads parallelises encoding.
 x11vnc -display :0 -forever -shared -nopw -rfbport 5900 \
-       -noxdamage -defer 1 -wait 5 -nodragging -threads \
+       -noxdamage -defer 1 -wait 5 -threads \
        -bg -o /var/log/x11vnc.log
 
 # 3) noVNC web + websockify on 6080  (serves vnc_lite.html, proxies /websockify -> :5900)

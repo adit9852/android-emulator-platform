@@ -45,19 +45,38 @@ function buildSlots() {
   return slots;
 }
 
+const SEED_LOCK = 'slot_pool:seedlock';
+
 async function ensureInitialized() {
   const client = getRedisClient();
   const slots = buildSlots();
   // Token covers device+id so changing the device line forces a reseed.
   const token = JSON.stringify(slots.map((s) => `${s.slotId}:${s.device}`));
-  const stored = await client.get(RESET_KEY);
-  if (stored === token) return;
-  await client.del(POOL_KEY);
-  if (slots.length > 0) {
-    await client.rPush(POOL_KEY, slots.map((s) => JSON.stringify(s)));
+  if ((await client.get(RESET_KEY)) === token) return;
+
+  // Seeding lock so concurrent callers (the 5s frontend poll hits several
+  // endpoints at once) can't each del+rPush and produce DUPLICATE slots —
+  // which previously let two sessions land on the same emulator.
+  const gotLock = await client.set(SEED_LOCK, token, { NX: true, PX: 8000 });
+  if (!gotLock) {
+    // Another caller is seeding — wait until the token is published.
+    for (let i = 0; i < 60; i++) {
+      if ((await client.get(RESET_KEY)) === token) return;
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    return;
   }
-  await client.set(RESET_KEY, token);
-  logger.info(`Slot pool seeded with ${slots.length} slots: ${slots.map((s) => `${s.slotId}=${s.device}`).join(', ')}`);
+  try {
+    if ((await client.get(RESET_KEY)) === token) return; // double-check inside lock
+    await client.del(POOL_KEY);
+    if (slots.length > 0) {
+      await client.rPush(POOL_KEY, slots.map((s) => JSON.stringify(s)));
+    }
+    await client.set(RESET_KEY, token);
+    logger.info(`Slot pool seeded with ${slots.length} slots: ${slots.map((s) => `${s.slotId}=${s.device}`).join(', ')}`);
+  } finally {
+    await client.del(SEED_LOCK);
+  }
 }
 
 /**
@@ -73,14 +92,16 @@ async function acquire(device = null) {
     return raw ? JSON.parse(raw) : null;
   }
 
-  // Scan + remove the first match.
+  // Scan for a matching slot and claim it atomically: only the caller whose
+  // LREM actually removed the entry gets the slot. This prevents two concurrent
+  // claims for the same device from both receiving the same emulator.
   const all = await client.lRange(POOL_KEY, 0, -1);
   for (let i = 0; i < all.length; i++) {
     const slot = JSON.parse(all[i]);
     if (slot.device === device) {
-      // LREM count=1 removes first occurrence
-      await client.lRem(POOL_KEY, 1, all[i]);
-      return slot;
+      const removed = await client.lRem(POOL_KEY, 1, all[i]);
+      if (removed >= 1) return slot;
+      // someone else claimed it first — keep scanning for another match
     }
   }
   return null;

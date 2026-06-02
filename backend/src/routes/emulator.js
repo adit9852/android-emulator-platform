@@ -34,10 +34,13 @@ function deriveSlotId(name) {
  * Override resolutions are chosen to keep each at ~1.1MP which matches the
  * Xvfb-friendly load while preserving the device's native aspect ratio.
  */
+// All devices use the same 720x1520 logical size so they match the viewer's
+// fixed 720:1520 aspect box (and the 540x1140 scrcpy framebuffer) and fill it
+// without letterboxing/chopping.
 const DEVICE_TWEAKS = {
   'Samsung Galaxy S10': { wmSize: '720x1520', wmDensity: '320' },
-  'Nexus 5':            { wmSize: '720x1280', wmDensity: '320' },
-  'Samsung Galaxy S6':  { wmSize: '720x1280', wmDensity: '320' },
+  'Nexus 5':            { wmSize: '720x1520', wmDensity: '320' },
+  'Samsung Galaxy S6':  { wmSize: '720x1520', wmDensity: '320' },
 };
 
 const COMMON_TWEAKS = [
@@ -422,6 +425,76 @@ router.post('/key/:sessionId', async (req, res) => {
   } catch (err) {
     logger.error('Key error:', err);
     res.status(500).json({ error: 'Key failed', details: err.message });
+  }
+});
+
+// ============================================================
+// Touch input via adb (clean gestures — scrcpy's mouse->touch injection
+// mis-translates drags into taps, so the UI sends fractional coordinates and
+// we drive `adb shell input` tap/swipe, which reproduces real gestures).
+// ============================================================
+const _sizeCache = new Map(); // containerName -> { w, h, ts }
+async function deviceSize(containerName) {
+  const cached = _sizeCache.get(containerName);
+  if (cached && Date.now() - cached.ts < 30000) return cached;
+  let w = 1080, h = 2280;
+  try {
+    const out = await execInContainer(containerName, ['adb', 'shell', 'wm', 'size']);
+    const m = out.match(/Override size:\s*(\d+)x(\d+)/) || out.match(/Physical size:\s*(\d+)x(\d+)/);
+    if (m) { w = parseInt(m[1], 10); h = parseInt(m[2], 10); }
+  } catch {}
+  const size = { w, h, ts: Date.now() };
+  _sizeCache.set(containerName, size);
+  return size;
+}
+const clamp01 = (n) => Math.max(0, Math.min(1, Number(n)));
+
+router.post('/tap/:sessionId', async (req, res) => {
+  try {
+    const session = await get(`session:${req.params.sessionId}`);
+    if (!session) return res.status(404).json({ error: 'Session not found' });
+    const { w, h } = await deviceSize(session.containerName);
+    const x = Math.round(clamp01(req.body?.xFrac) * w);
+    const y = Math.round(clamp01(req.body?.yFrac) * h);
+    await adb(session.containerName, ['input', 'tap', String(x), String(y)]);
+    res.json({ ok: true, x, y });
+  } catch (err) {
+    logger.error('Tap error:', err);
+    res.status(500).json({ error: 'Tap failed', details: err.message });
+  }
+});
+
+router.post('/swipe/:sessionId', async (req, res) => {
+  try {
+    const session = await get(`session:${req.params.sessionId}`);
+    if (!session) return res.status(404).json({ error: 'Session not found' });
+    const { w, h } = await deviceSize(session.containerName);
+    const x1 = Math.round(clamp01(req.body?.x1Frac) * w);
+    const y1 = Math.round(clamp01(req.body?.y1Frac) * h);
+    const x2 = Math.round(clamp01(req.body?.x2Frac) * w);
+    const y2 = Math.round(clamp01(req.body?.y2Frac) * h);
+    const dur = Math.max(20, Math.min(3000, parseInt(req.body?.durationMs, 10) || 120));
+    await adb(session.containerName, ['input', 'swipe', String(x1), String(y1), String(x2), String(y2), String(dur)]);
+    res.json({ ok: true });
+  } catch (err) {
+    logger.error('Swipe error:', err);
+    res.status(500).json({ error: 'Swipe failed', details: err.message });
+  }
+});
+
+router.post('/text/:sessionId', async (req, res) => {
+  try {
+    const session = await get(`session:${req.params.sessionId}`);
+    if (!session) return res.status(404).json({ error: 'Session not found' });
+    const text = String(req.body?.text ?? '');
+    if (!text) return res.status(400).json({ error: 'text required' });
+    // adb input text uses %s for spaces and is picky with specials; send safely.
+    const safe = text.replace(/ /g, '%s');
+    await adb(session.containerName, ['input', 'text', safe]);
+    res.json({ ok: true });
+  } catch (err) {
+    logger.error('Text error:', err);
+    res.status(500).json({ error: 'Text failed', details: err.message });
   }
 });
 

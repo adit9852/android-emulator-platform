@@ -26,7 +26,10 @@
       rfb.clipViewport = false;
       rfb.resizeSession = false;
       rfb.background = '#000';
-      rfb.focusOnClick = true;
+      rfb.focusOnClick = false;
+      // Display only — input is captured by the parent UI overlay and sent as
+      // clean `adb input` gestures (scrcpy's mouse->touch mangles drags).
+      rfb.viewOnly = true;
       // Favour frame rate over crispness for smooth motion (the source is
       // already downscaled, so lower JPEG quality is barely visible).
       rfb.qualityLevel = 5;

@@ -44,6 +44,16 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ key }),
     }),
+  tap: (sessionId, xFrac, yFrac) =>
+    request(`/emulator/tap/${sessionId}`, {
+      method: 'POST',
+      body: JSON.stringify({ xFrac, yFrac }),
+    }),
+  swipe: (sessionId, x1Frac, y1Frac, x2Frac, y2Frac, durationMs) =>
+    request(`/emulator/swipe/${sessionId}`, {
+      method: 'POST',
+      body: JSON.stringify({ x1Frac, y1Frac, x2Frac, y2Frac, durationMs }),
+    }),
   gps: (sessionId, lat, lng) =>
     request(`/emulator/gps/${sessionId}`, {
       method: 'POST',

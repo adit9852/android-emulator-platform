@@ -264,7 +264,7 @@ export default function App() {
       <NavRail nav={nav} onNav={setNav} serverInfo={serverInfo} />
 
       <div className="flex-1 flex flex-col min-w-0">
-        <TopBar serverInfo={serverInfo} active={activeSession} orientation={orientation} onStop={() => stopSession()} />
+        <TopBar nav={nav} serverInfo={serverInfo} active={activeSession} orientation={orientation} onStop={() => stopSession()} />
 
         <div className="flex-1 min-h-0 flex flex-col lg:flex-row gap-4 p-4 overflow-y-auto lg:overflow-hidden">
           {/* CENTER — phone stage */}
@@ -439,17 +439,28 @@ function NavRail({ nav, onNav, serverInfo }) {
 // ===================================================================
 // Top bar
 // ===================================================================
-function TopBar({ serverInfo, active, orientation, onStop }) {
+const NAV_META = {
+  sandbox:  { title: 'Device Sandbox',  sub: 'Pick a device and launch a live Android instance', icon: MonitorSmartphone },
+  apps:     { title: 'Apps',            sub: 'Upload, install, and manage APKs',                 icon: LayoutGrid },
+  sessions: { title: 'Session History', sub: 'Active and recent device sessions',                icon: Clock },
+  reports:  { title: 'Reports',         sub: 'Live capacity and usage',                          icon: BarChart3 },
+  settings: { title: 'Settings',        sub: 'Workspace preferences',                            icon: Settings },
+};
+
+function TopBar({ nav, serverInfo, active, orientation, onStop }) {
+  const meta = NAV_META[nav] || NAV_META.sandbox;
+  const Icon = meta.icon;
+  const onSandbox = nav === 'sandbox';
   return (
     <header className="relative z-10 border-b border-white/5 bg-ink-900/30 backdrop-blur-xl px-5 py-3 flex items-center justify-between gap-3">
       <div className="flex items-center gap-3 min-w-0 animate-in-left">
-        <MonitorSmartphone className="w-5 h-5 text-teal-300 flex-shrink-0" />
+        <Icon className="w-5 h-5 text-teal-300 flex-shrink-0" />
         <div className="min-w-0">
           <h1 className="text-[15px] font-semibold leading-tight tracking-tight truncate">
-            {active ? active.device : 'Device Sandbox'}
+            {onSandbox && active ? active.device : meta.title}
           </h1>
           <p className="text-[11px] text-ink-400 leading-tight truncate">
-            {active ? `Android 11 · ${orientation} · ${active.sessionId.slice(0, 8)}…` : 'Pick a device and launch a live Android instance'}
+            {onSandbox && active ? `Android 11 · ${orientation} · ${active.sessionId.slice(0, 8)}…` : meta.sub}
           </p>
         </div>
       </div>

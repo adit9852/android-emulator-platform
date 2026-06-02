@@ -28,7 +28,7 @@ export default {
         },
       },
       boxShadow: {
-        glow: '0 0 0 1px rgba(99,102,241,0.25), 0 8px 24px rgba(99,102,241,0.18)',
+        glow: '0 0 0 1px rgba(45,212,191,0.30), 0 10px 28px -6px rgba(20,184,166,0.35)',
       },
     },
   },

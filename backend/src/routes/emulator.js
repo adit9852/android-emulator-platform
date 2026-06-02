@@ -44,9 +44,9 @@ const DEVICE_TWEAKS = {
 };
 
 const COMMON_TWEAKS = [
-  ['settings', 'put', 'global', 'window_animation_scale', '0.75'],
-  ['settings', 'put', 'global', 'transition_animation_scale', '0.75'],
-  ['settings', 'put', 'global', 'animator_duration_scale', '0.75'],
+  ['settings', 'put', 'global', 'window_animation_scale', '1.0'],
+  ['settings', 'put', 'global', 'transition_animation_scale', '1.0'],
+  ['settings', 'put', 'global', 'animator_duration_scale', '1.0'],
   ['settings', 'put', 'secure', 'long_press_timeout', '300'],
   ['cmd', 'power', 'set-fixed-performance-mode-enabled', 'true'],
 ];
@@ -92,6 +92,25 @@ async function rotateBy(containerName, steps) {
   }
 }
 
+// Force the display orientation. `cmd window set-user-rotation lock <rot>`
+// overrides the sensor and turns any app that isn't hard orientation-locked.
+// (The Pixel launcher IS portrait-locked, so the home screen itself won't turn
+// — that's expected Android behaviour; rotation shows once an app is open.)
+// 0 = portrait, 1 = landscape. Falls back to legacy settings + emu rotate.
+async function setRotation(containerName, target) {
+  try {
+    await adb(containerName, ['settings', 'put', 'system', 'accelerometer_rotation', '0']);
+    await adb(containerName, ['cmd', 'window', 'set-user-rotation', 'lock', String(target)]);
+  } catch (err) {
+    logger.warn(`set-user-rotation on ${containerName} failed: ${err.message}; falling back to legacy`);
+    try {
+      await adb(containerName, ['settings', 'put', 'system', 'user_rotation', String(target)]);
+    } catch (e2) {
+      logger.warn(`legacy user_rotation on ${containerName} failed: ${e2.message}`);
+    }
+  }
+}
+
 // Disable the Google Discover feed (the "-1" panel) the first time we see an
 // emulator with it still enabled. On this AVD the launcher otherwise sits on
 // that Google feed as its "home" and HOME/swipes can't leave it, so users keep
@@ -130,10 +149,7 @@ async function resetSlot(containerName, device, slotId) {
   // Reset orientation back to portrait between users.
   if (slotId != null) {
     try {
-      const current = await getSlotRotation(slotId);
-      if (current > 0) {
-        await rotateBy(containerName, (4 - current) % 4);
-      }
+      await setRotation(containerName, 0);
       await setSlotRotation(slotId, 0);
     } catch (err) {
       logger.warn(`rotation reset on ${containerName} failed: ${err.message}`);
@@ -376,10 +392,9 @@ router.post('/rotate/:sessionId', async (req, res) => {
     }
 
     const result = await withSlotLock(slotId, async () => {
-      const current = await getSlotRotation(slotId);     // 0|1|2|3
-      const target = current % 2 === 0 ? 1 : 0;          // portrait (0,2) → 1, landscape (1,3) → 0
-      const steps = (target - current + 4) % 4;
-      await rotateBy(session.containerName, steps);
+      const current = await getSlotRotation(slotId);     // 0|1
+      const target = current % 2 === 0 ? 1 : 0;          // toggle portrait ↔ landscape
+      await setRotation(session.containerName, target);
       await setSlotRotation(slotId, target);
       return target;
     });

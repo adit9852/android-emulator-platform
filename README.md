@@ -1,438 +1,189 @@
-# Android Emulator Platform
+<div align="center">
 
-A web-based Android emulator platform that allows users to run Android applications in the browser, similar to Appetize.io. Built with Docker, Node.js, and designed to run on a single server with resource isolation.
+# 📱 Android Emulator Platform
 
-## 🎯 Features
+### Real Android devices, streamed live to your browser — no install, no signup.
 
-- **Web-based Android Emulation**: Run Android apps directly in the browser
-- **Resource Isolation**: Docker containers with strict CPU and memory limits
-- **Concurrent Users**: Support for 20-25 concurrent emulator sessions
-- **Session Management**: Automatic cleanup and timeout handling
-- **APK Upload**: Upload and install custom Android applications
-- **Real-time Monitoring**: Track resource usage and system health
-- **Scalable Architecture**: Easily scale from 5 to 25+ concurrent instances
+A self-hosted, open-source alternative to **Appetize.io**. Launch a real Android emulator in one click, touch and type on it in real time, drag-and-drop an APK to install it, and simulate GPS, battery, and network — all from a single browser tab.
 
-## 📋 Prerequisites
+[![Live Demo](https://img.shields.io/badge/▶_Live_Demo-178--63--95--122.sslip.io-2dd4bf?style=for-the-badge)](https://178-63-95-122.sslip.io)
 
-- **Server**: 64GB RAM, Xeon processor (or equivalent)
-- **OS**: Ubuntu 20.04+ or Debian 11+
-- **Virtualization**: KVM support (Intel VT-x or AMD-V)
-- **Docker**: Version 20.10+
-- **Docker Compose**: Version 2.0+
-- **Ports**: 80, 443, 3000, 6080-6104, 9090 (configurable)
+[![License: MIT](https://img.shields.io/badge/License-MIT-22c55e.svg?style=flat-square)](LICENSE)
+![React](https://img.shields.io/badge/React-18-61dafb?style=flat-square&logo=react&logoColor=white)
+![Node.js](https://img.shields.io/badge/Node.js-Express-339933?style=flat-square&logo=node.js&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-Compose-2496ed?style=flat-square&logo=docker&logoColor=white)
+![Android](https://img.shields.io/badge/Android-11-3ddc84?style=flat-square&logo=android&logoColor=white)
+![TLS](https://img.shields.io/badge/HTTPS-Let's_Encrypt-003a70?style=flat-square&logo=letsencrypt&logoColor=white)
 
-## 🚀 Quick Start
+<img src="docs/hero.png" alt="Live Android session in the browser" width="100%" />
 
-### 1. Server Audit
-
-First, check your server's current resource usage and capabilities:
-
-```bash
-# Upload and run the audit script on your Hetzner server
-chmod +x server-audit.sh
-sudo ./server-audit.sh
-```
-
-Review the output to ensure:
-- ✅ At least 40GB RAM available for emulators
-- ✅ KVM virtualization is supported
-- ✅ Sufficient disk space (100GB+ recommended)
-- ✅ Current services are using <20GB RAM
-
-### 2. Docker Setup
-
-Install and configure Docker with proper resource limits:
-
-```bash
-# Run the Docker setup script
-chmod +x docker-setup.sh
-sudo ./docker-setup.sh
-```
-
-This script will:
-- Install Docker Engine and Docker Compose
-- Configure Docker daemon with optimized settings
-- Set up KVM for hardware acceleration
-- Create isolated Docker network
-- Pull Android emulator images
-- Create directory structure
-
-### 3. Configuration
-
-Create environment file:
-
-```bash
-cd android-emulator-platform
-cp .env.example .env
-nano .env
-```
-
-Configure the following variables:
-
-```env
-# Database
-DB_PASSWORD=your_secure_password_here
-
-# Grafana
-GRAFANA_PASSWORD=your_grafana_password
-
-# Application
-MAX_CONCURRENT_EMULATORS=25
-EMULATOR_RAM_GB=3
-SESSION_TIMEOUT_MINUTES=30
-NODE_ENV=production
-
-# CORS (optional)
-CORS_ORIGIN=*
-```
-
-### 4. Start the Platform
-
-#### Option A: Start with 5 emulators (Recommended for testing)
-
-```bash
-docker-compose up -d nginx redis postgres backend emulator-1 emulator-2 emulator-3 emulator-4 emulator-5
-```
-
-#### Option B: Start all services including monitoring
-
-```bash
-docker-compose up -d
-```
-
-### 5. Verify Installation
-
-Check that all services are running:
-
-```bash
-docker-compose ps
-```
-
-Monitor resource usage:
-
-```bash
-/opt/android-emulator-platform/scripts/monitor-resources.sh
-```
-
-### 6. Access the Platform
-
-- **Frontend**: http://your-server-ip
-- **API**: http://your-server-ip/api
-- **Grafana Dashboard**: http://your-server-ip:3000
-- **Prometheus**: http://your-server-ip:9090
-- **Direct Emulator Access**: http://your-server-ip:6080 (emulator-1)
-
-## 📊 Resource Allocation
-
-### Per Service
-
-| Service | RAM | CPU | Purpose |
-|---------|-----|-----|---------|
-| Nginx | 512MB | 1 | Reverse proxy |
-| Redis | 768MB | 1 | Session cache |
-| PostgreSQL | 2GB | 2 | Database |
-| Backend | 2GB | 2 | API server |
-| Each Emulator | 3GB | 2 | Android instance |
-| Prometheus | 1GB | 1 | Metrics |
-| Grafana | 1GB | 1 | Dashboards |
-
-### Total Resource Usage
-
-| Emulators | Total RAM | Total CPUs | Recommended |
-|-----------|-----------|------------|-------------|
-| 5 | ~22GB | ~18 | ✅ Safe start |
-| 10 | ~37GB | ~28 | ✅ Good |
-| 15 | ~52GB | ~38 | ⚠️ Monitor closely |
-| 20 | ~67GB | ~48 | ❌ Exceeds 64GB |
-
-**Recommendation**: Start with 5 emulators, monitor for 1-2 weeks, then gradually scale to 10, 15, and finally 20-25 based on actual usage patterns.
-
-## 🔧 Management Commands
-
-### Start/Stop Services
-
-```bash
-# Start all services
-docker-compose up -d
-
-# Start specific services
-docker-compose up -d emulator-1 emulator-2
-
-# Stop all services
-docker-compose down
-
-# Stop and remove volumes
-docker-compose down -v
-
-# Restart a service
-docker-compose restart backend
-```
-
-### View Logs
-
-```bash
-# All services
-docker-compose logs -f
-
-# Specific service
-docker-compose logs -f backend
-
-# Last 100 lines
-docker-compose logs --tail=100 emulator-1
-```
-
-### Scale Emulators
-
-```bash
-# Add more emulators (edit docker-compose.yml first)
-docker-compose up -d emulator-6 emulator-7
-
-# Stop specific emulators
-docker-compose stop emulator-5
-docker-compose rm emulator-5
-```
-
-### Monitor Resources
-
-```bash
-# Real-time stats
-docker stats
-
-# Custom monitoring script
-/opt/android-emulator-platform/scripts/monitor-resources.sh
-
-# Check specific container
-docker inspect android-emulator-1
-```
-
-### Database Management
-
-```bash
-# Access PostgreSQL
-docker exec -it emulator-postgres psql -U emulator_admin -d emulator_platform
-
-# Backup database
-docker exec emulator-postgres pg_dump -U emulator_admin emulator_platform > backup.sql
-
-# Restore database
-docker exec -i emulator-postgres psql -U emulator_admin emulator_platform < backup.sql
-```
-
-### Cleanup
-
-```bash
-# Remove stopped containers
-docker container prune -f
-
-# Remove unused images
-docker image prune -a -f
-
-# Remove unused volumes
-docker volume prune -f
-
-# Full cleanup (careful!)
-docker system prune -a --volumes -f
-```
-
-## 🏗️ Architecture
-
-```
-┌─────────────────────────────────────────────────────────┐
-│                    Internet/Users                        │
-└────────────────────┬────────────────────────────────────┘
-                     │
-                     ▼
-            ┌────────────────┐
-            │  Nginx (80/443)│
-            │  Reverse Proxy │
-            └────────┬───────┘
-                     │
-        ┌────────────┼────────────┐
-        │            │            │
-        ▼            ▼            ▼
-┌──────────┐  ┌──────────┐  ┌──────────┐
-│ Frontend │  │ Backend  │  │ Emulator │
-│   (Web)  │  │   API    │  │  (noVNC) │
-└──────────┘  └────┬─────┘  └──────────┘
-                   │
-        ┌──────────┼──────────┐
-        │          │          │
-        ▼          ▼          ▼
-   ┌────────┐ ┌────────┐ ┌──────────────┐
-   │ Redis  │ │Postgres│ │Docker Engine │
-   │ Cache  │ │   DB   │ │  (Emulators) │
-   └────────┘ └────────┘ └──────────────┘
-```
-
-## 🔒 Security Considerations
-
-1. **Network Isolation**: Emulators run in isolated Docker network
-2. **Resource Limits**: Hard limits prevent resource exhaustion
-3. **Rate Limiting**: API endpoints are rate-limited
-4. **APK Scanning**: Consider adding malware scanning for uploaded APKs
-5. **HTTPS**: Configure SSL certificates for production
-6. **Firewall**: Only expose necessary ports
-7. **Authentication**: Implement user authentication before production
-
-## 📈 Scaling Strategy
-
-### Phase 1: Testing (Week 1-2)
-- Start with 5 concurrent emulators
-- Monitor resource usage daily
-- Test with real users
-- Identify bottlenecks
-
-### Phase 2: Gradual Scale (Week 3-4)
-- Increase to 10 emulators
-- Monitor for 1 week
-- Verify existing services unaffected
-- Optimize based on metrics
-
-### Phase 3: Production (Week 5-8)
-- Scale to 15-20 emulators
-- Implement auto-scaling logic
-- Set up alerts for high resource usage
-- Plan for multi-server deployment if needed
-
-## 🐛 Troubleshooting
-
-### Emulator won't start
-
-```bash
-# Check KVM availability
-ls -l /dev/kvm
-
-# Check Docker logs
-docker logs android-emulator-1
-
-# Verify image exists
-docker images | grep android
-```
-
-### High memory usage
-
-```bash
-# Check container stats
-docker stats
-
-# Reduce concurrent emulators
-docker-compose stop emulator-10 emulator-9 emulator-8
-
-# Check for memory leaks
-docker system df
-```
-
-### Network issues
-
-```bash
-# Check network
-docker network ls
-docker network inspect emulator-network
-
-# Restart networking
-docker-compose restart nginx
-```
-
-### Database connection errors
-
-```bash
-# Check PostgreSQL status
-docker-compose logs postgres
-
-# Verify connection
-docker exec -it emulator-postgres psql -U emulator_admin -d emulator_platform -c "SELECT 1;"
-```
-
-## 💰 Cost Breakdown
-
-### Development (DIY)
-- Your time: 3-6 months part-time
-- Server: Already owned (Hetzner)
-- Domain + SSL: $20-50/year
-- **Total: ~$50-100/month**
-
-### Hiring Developers
-- Freelance developer: $5K-$15K for MVP
-- Offshore team: $10K-$25K for complete solution
-
-### Operating Costs
-- Server: Already owned
-- Bandwidth: Included with Hetzner
-- Monitoring: Free (Prometheus/Grafana)
-- **Monthly: ~$50-100**
-
-## 📚 API Documentation
-
-### Endpoints
-
-#### Health Check
-```
-GET /health
-Response: { status: "healthy", timestamp: "...", uptime: 123 }
-```
-
-#### Create Session
-```
-POST /api/emulator/session
-Body: { device: "Samsung Galaxy S10", timeout: 1800 }
-Response: { sessionId: "...", vncUrl: "...", status: "starting" }
-```
-
-#### Upload APK
-```
-POST /api/upload/apk
-Body: FormData with 'apk' file
-Response: { apkId: "...", filename: "...", size: 12345 }
-```
-
-#### Install APK
-```
-POST /api/emulator/install
-Body: { sessionId: "...", apkId: "..." }
-Response: { success: true, message: "APK installed" }
-```
-
-## 🤝 Contributing
-
-This is a private project, but contributions are welcome:
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Test thoroughly
-5. Submit a pull request
-
-## 📝 License
-
-MIT License - See LICENSE file for details
-
-## 🆘 Support
-
-For issues or questions:
-1. Check the troubleshooting section
-2. Review Docker logs
-3. Check Grafana dashboards
-4. Create an issue in the repository
-
-## 🗺️ Roadmap
-
-- [ ] Phase 1: Basic emulator functionality (Current)
-- [ ] Phase 2: User authentication and billing
-- [ ] Phase 3: Multiple Android versions support
-- [ ] Phase 4: iOS emulator support (requires Mac hardware)
-- [ ] Phase 5: Auto-scaling and load balancing
-- [ ] Phase 6: Multi-server deployment
-- [ ] Phase 7: API for third-party integrations
-
-## ⚠️ Important Notes
-
-1. **Start Small**: Begin with 5 emulators and scale gradually
-2. **Monitor Constantly**: Use Grafana dashboards to track resources
-3. **Backup Regularly**: Backup database and configuration files
-4. **Test Thoroughly**: Test with real users before scaling
-5. **Legal Compliance**: Ensure compliance with Android and app licensing
-6. **Existing Services**: Monitor your existing services to ensure they're not affected
+</div>
 
 ---
 
-**Built with ❤️ for the Android developer community**
+## ✨ Highlights
+
+- 🚀 **One-click live device** — pick a phone, hit *Start*, and a pre-warmed emulator is streaming in seconds (no per-session boot wait).
+- 👆 **Real-time touch & keyboard** — native, low-latency input over [scrcpy](https://github.com/Genymobile/scrcpy). Your laptop keyboard maps straight to the device.
+- 📦 **Install any APK** — drag-and-drop a file or paste a download URL; install + auto-launch on the live device.
+- 🎛️ **Hardware controls** — Home, Back, Recents, Power, Volume, rotate, and screenshot from a dock beside the phone.
+- 🌐 **Developer tools** — throttle the network (Wi-Fi → 4G → 3G → EDGE → offline), set the battery level, spoof GPS (city presets), and open any URL on the device.
+- 📊 **Live dashboard** — Apps library, session history, and a real-time capacity/utilization report.
+- 🔒 **Production-ready edge** — nginx reverse proxy, automatic **Let's Encrypt HTTPS**, and all streams tunnelled through one secure origin (zero mixed-content).
+- 🎨 **Polished SaaS UI** — React + Tailwind, glassmorphism, teal/cyan theme, meaningful motion, fully responsive.
+
+---
+
+## 🖼️ Screenshots
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/apps.png" alt="Apps manager" /><br/><sub><b>Apps</b> — upload, install & manage APKs</sub></td>
+    <td width="50%"><img src="docs/reports.png" alt="Reports dashboard" /><br/><sub><b>Reports</b> — live capacity & device pool</sub></td>
+  </tr>
+  <tr>
+    <td colspan="2"><img src="docs/settings.png" alt="Settings" /><br/><sub><b>Settings</b> — session defaults, interface toggles & platform info</sub></td>
+  </tr>
+</table>
+
+---
+
+## 🏗️ How it works
+
+The hard part of streaming a phone to a browser is doing it **securely and with real input**. Here's the full path of a tap:
+
+```mermaid
+flowchart LR
+    U["🌐 Browser<br/>(React app)"] -->|HTTPS / WSS| N["nginx<br/>TLS · reverse proxy"]
+    N -->|/api| B["Backend<br/>Express"]
+    N -->|/stream/N| S["scrcpy-display<br/>noVNC + websockify"]
+    B <-->|slot pool · sessions| R[("Redis")]
+    B <-->|session records| P[("PostgreSQL")]
+    B -->|ADB control| E["Android Emulator<br/>QEMU + KVM · Android 11"]
+    S -->|scrcpy → Xvfb → x11vnc| E
+```
+
+1. The **backend** keeps a **pre-warmed pool** of emulator slots in Redis. Starting a session just hands one out — no boot wait.
+2. Each emulator has a paired **`scrcpy-display`** container that renders *only* the phone screen (scrcpy → Xvfb → x11vnc → websockify → noVNC).
+3. **nginx** serves the React app, proxies the API, and tunnels each stream at `/stream/<slot>/` over **TLS** — so the live video + WebSocket input share one secure origin (no `http://ip:port`, no mixed-content blocks).
+4. Touches and keystrokes ride **scrcpy's native input** straight into Android's InputManager — real, low-latency, and keyboard-mapped.
+
+> 💡 **Why scrcpy + noVNC instead of a custom WebRTC bridge?** It gives native keyboard/gesture mapping and rock-solid latency with far less moving machinery. Earlier MSE/ffmpeg and ws-scrcpy approaches were prototyped and dropped — see the inline notes in `scrcpy-display/` and `backend/src/routes/emulator.js`.
+
+---
+
+## 🧰 Tech stack
+
+| Layer | Technologies |
+|---|---|
+| **Frontend** | React 18, Vite 5, Tailwind CSS 3, lucide-react |
+| **Backend** | Node.js, Express 4, Redis (slot pool + cache), PostgreSQL 15, Multer, Winston, dockerode, `ws`, Helmet, rate-limiting |
+| **Emulation** | [budtmo/docker-android](https://github.com/budtmo/docker-android) · Android 11 · QEMU + **KVM** · GPU passthrough (`-gpu host`, `/dev/dri`) |
+| **Streaming** | scrcpy → Xvfb → x11vnc → websockify → noVNC |
+| **Infra / Edge** | Docker Compose, nginx, Let's Encrypt (certbot, auto-renew) |
+| **Observability** | Prometheus + Grafana |
+
+**Default device pool:** Samsung Galaxy S10 · Nexus 5 · Samsung Galaxy S6 (Android 11) — 3 pre-warmed concurrent slots.
+
+---
+
+## 🚀 Quick start (self-host)
+
+### Prerequisites
+- A Linux host with **Docker** + **Docker Compose**
+- **KVM** enabled (`/dev/kvm`) — required for usable emulator performance (a bare-metal or nested-virt VPS, e.g. Hetzner)
+- ~8 GB RAM for the 3-device pool
+
+### Run it
+
+```bash
+# 1. Clone
+git clone <your-repo-url> android-emulator-platform
+cd android-emulator-platform
+
+# 2. Configure environment (DB creds, JWT secret, etc.)
+cp .env.example .env   # then edit values
+
+# 3. Build & launch the whole stack
+docker compose up -d --build
+
+# 4. Open the app
+#    http://<your-server-ip>
+```
+
+The emulator pool boots once at startup and stays warm. First boot pulls images and provisions Android — give it a few minutes.
+
+### Make it a public HTTPS link
+Point a domain (or use a free `sslip.io` host) at the server, then issue a cert with certbot's webroot challenge and enable the `443` server block in `nginx/nginx.conf`. The live demo runs exactly this setup with auto-renewal. See **[DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md)**.
+
+---
+
+## 🔌 API reference
+
+All routes are under `/api`. Highlights:
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/emulator/devices` | List devices and availability |
+| `GET` | `/emulator/pool` | Slot pool status |
+| `POST` | `/emulator/session` | Start a session (claims a slot) |
+| `GET` | `/emulator/session/:id` | Session details + stream URL |
+| `DELETE` | `/emulator/session/:id` | End a session (releases the slot) |
+| `GET` | `/emulator/sessions` | List active sessions |
+| `POST` | `/emulator/key` | Press a hardware key (Home/Back/…) |
+| `POST` | `/emulator/tap` · `/swipe` · `/text` | Inject touch / text |
+| `POST` | `/emulator/rotate/:id` | Toggle portrait ↔ landscape |
+| `GET` | `/emulator/screenshot/:id` | Capture the screen |
+| `POST` | `/emulator/gps` · `/battery` · `/network` · `/url` | Simulate sensors / open a URL |
+| `POST` | `/upload/apk` · `/upload/apk-url` | Upload an APK (file or URL) |
+| `POST` | `/upload/install` | Install an APK on a live device |
+| `GET` / `DELETE` | `/upload/apks` · `/upload/apk/:id` | List / delete library APKs |
+| `GET` | `/health` | Health check |
+
+---
+
+## 📁 Project structure
+
+```
+android-emulator-platform/
+├── frontend/         # React + Vite + Tailwind SPA (the dashboard & phone view)
+├── backend/          # Express API — slot pool, sessions, input, APKs (Redis + Postgres)
+├── emulator/         # Android emulator image (budtmo-based, Android 11)
+├── scrcpy-display/   # Per-emulator screen-streaming container (scrcpy → noVNC)
+├── nginx/            # Reverse proxy + TLS termination + /stream routing
+├── monitoring/       # Prometheus + Grafana config
+├── docs/             # Screenshots
+└── docker-compose.yml
+```
+
+---
+
+## 🗺️ Roadmap
+
+- [ ] User accounts & API keys (auth scaffolding already present)
+- [ ] Horizontal scaling of the emulator pool across hosts
+- [ ] Session recording & shareable replays
+- [ ] More devices / Android versions
+- [ ] Per-session resource quotas & idle reaping UI
+
+---
+
+## ⚠️ Notes & limitations
+
+- The default deployment runs **3 concurrent device slots** — capacity scales with host CPU/RAM.
+- The Android **launcher is portrait-locked** (standard Android); rotation takes effect *inside* apps that support landscape.
+- KVM is effectively mandatory — without hardware virtualization the emulators are too slow to be usable.
+
+---
+
+## 🙏 Acknowledgements
+
+Built on the shoulders of [scrcpy](https://github.com/Genymobile/scrcpy), [noVNC](https://github.com/novnc/noVNC), [budtmo/docker-android](https://github.com/budtmo/docker-android), and the wider Android emulator community. Design benchmarked against (not copied from) Appetize.io.
+
+## 📄 License
+
+[MIT](LICENSE) — free to use, modify, and self-host.
+
+<div align="center">
+<sub>Made with ☕ and a lot of <code>docker compose up</code>.</sub>
+</div>

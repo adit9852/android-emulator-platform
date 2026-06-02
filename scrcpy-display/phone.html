@@ -14,8 +14,12 @@
   <script type="module">
     import RFB from './core/rfb.js';
     const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
-    const port = window.location.port || (proto === 'wss' ? 443 : 80);
-    const url = `${proto}://${window.location.hostname}:${port}/websockify`;
+    // Derive the websocket from THIS page's own path so it works both when
+    // served directly (…:6090/phone.html → /websockify) and when proxied behind
+    // TLS under a path prefix (…/stream/1/phone.html → /stream/1/websockify).
+    // window.location.host already includes a non-default port if present.
+    const base = window.location.pathname.replace(/[^/]*$/, '');
+    const url = `${proto}://${window.location.host}${base}websockify`;
 
     function connect() {
       const rfb = new RFB(document.getElementById('screen'), url, {});

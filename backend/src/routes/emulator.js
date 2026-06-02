@@ -243,7 +243,9 @@ router.post('/session', async (req, res) => {
     logger.info(`Session ${sessionId} → slot ${slot.slotId} (${slot.device})`);
     res.status(201).json({
       ...record,
-      vncUrl: `http://${publicHost(req)}:${slot.vncPort}`,
+      // Same-origin stream path so it works behind TLS (no mixed content) and
+      // through nginx. nginx maps /stream/<slotId>/ → scrcpy-<slotId>:6080.
+      vncUrl: `/stream/${slot.slotId}/`,
       timeoutMinutes: timeout,
       message: `Connected to ${slot.device}.`,
     });
@@ -267,14 +269,16 @@ router.get('/session/:sessionId', async (req, res) => {
     }
     const containerName = session.containerName || session.container_name;
     const status = await getEmulatorStatus(containerName);
+    const slotId = session.slotId ?? deriveSlotId(containerName);
     res.json({
       sessionId,
       status: status ? status.status : 'unknown',
+      slotId,
       vncPort: session.vncPort || session.vnc_port,
       adbPort: session.adbPort || session.adb_port,
       device: session.device || session.device_type,
       createdAt: session.createdAt || session.created_at,
-      vncUrl: `http://${publicHost(req)}:${session.vncPort || session.vnc_port}`,
+      vncUrl: `/stream/${slotId}/`,
     });
   } catch (err) {
     logger.error('Error getting session:', err);

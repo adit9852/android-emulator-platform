@@ -280,7 +280,7 @@ export default function App() {
             ) : nav === 'sessions' ? (
               <SessionsView
                 sessions={sessions} activeId={activeSession?.sessionId} serverInfo={serverInfo}
-                onOpen={(s) => { setActiveSession({ sessionId: s.sessionId, device: s.device, containerName: s.containerName, slotId: s.slotId, vncPort: s.vncPort, vncUrl: `http://${window.location.hostname}:${s.vncPort}` }); setNav('sandbox'); }}
+                onOpen={(s) => { setActiveSession({ sessionId: s.sessionId, device: s.device, containerName: s.containerName, slotId: s.slotId, vncPort: s.vncPort, vncUrl: `/stream/${s.slotId}/` }); setNav('sandbox'); }}
                 onStop={() => stopSession()} onGoSandbox={() => setNav('sandbox')}
               />
             ) : nav === 'reports' ? (
@@ -353,7 +353,7 @@ export default function App() {
                   containerName: s.containerName,
                   slotId: s.slotId,
                   vncPort: s.vncPort,
-                  vncUrl: `http://${window.location.hostname}:${s.vncPort}`,
+                  vncUrl: `/stream/${s.slotId}/`,
                 })
               }
               networkProfile={networkProfile}

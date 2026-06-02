@@ -98,7 +98,7 @@ flowchart LR
 
 ```bash
 # 1. Clone
-git clone <your-repo-url> android-emulator-platform
+git clone https://github.com/adit9852/android-emulator-platform
 cd android-emulator-platform
 
 # 2. Configure environment (DB creds, JWT secret, etc.)

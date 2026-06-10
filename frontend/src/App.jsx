@@ -260,15 +260,15 @@ export default function App() {
 
   // =========================================================================
   return (
-    <div className="h-full flex">
+    <div className="app-shell h-full flex">
       <NavRail nav={nav} onNav={setNav} serverInfo={serverInfo} />
 
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="app-content flex-1 flex flex-col min-w-0">
         <TopBar nav={nav} serverInfo={serverInfo} active={activeSession} orientation={orientation} onStop={() => stopSession()} />
 
-        <div className="flex-1 min-h-0 flex flex-col lg:flex-row gap-4 p-4 overflow-y-auto lg:overflow-hidden">
+        <div className="workspace flex-1 min-h-0 flex flex-col lg:flex-row overflow-y-auto lg:overflow-hidden">
           {/* CENTER — phone stage */}
-          <main className="flex-1 min-w-0 min-h-[72vh] lg:min-h-0 animate-slide-up">
+          <main className="stage-area flex-1 min-w-0 min-h-[72vh] lg:min-h-0 animate-slide-up">
             {nav === 'apps' ? (
               <AppsView
                 apks={apks} apkInputRef={apkInputRef} uploadProgress={uploadProgress}
@@ -314,7 +314,7 @@ export default function App() {
 
           {/* RIGHT — config panel (sandbox only) */}
           {nav === 'sandbox' && (
-          <aside className="w-full lg:w-[366px] flex-shrink-0 lg:overflow-y-auto lg:pr-1 animate-slide-up delay-1">
+          <aside className="config-sidebar w-full lg:w-[324px] flex-shrink-0 lg:order-first lg:overflow-y-auto animate-slide-up delay-1">
             <ConfigPanel
               devices={devices}
               pickedDevice={pickedDevice}
@@ -384,16 +384,16 @@ function NavRail({ nav, onNav, serverInfo }) {
   const [open, setOpen] = useState(false);
   return (
     <nav
-      className={`hidden md:flex flex-col items-stretch gap-1 py-4 border-r border-white/5 bg-ink-900/50 backdrop-blur-xl transition-all duration-300 ${open ? 'w-56 px-3' : 'w-[68px] px-3'}`}
+      className={`nav-rail hidden md:flex flex-col items-stretch gap-1 py-4 transition-all duration-300 ${open ? 'w-64 px-4' : 'w-[72px] px-3'}`}
     >
-      <div className="flex items-center gap-2.5 mb-5 px-1.5">
-        <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-teal-400 to-cyan-500 flex items-center justify-center flex-shrink-0 shadow-[0_8px_20px_-6px_rgba(20,184,166,0.7)]">
-          <Smartphone className="w-5 h-5 text-[#04181a]" />
+      <div className="flex items-center gap-2.5 mb-8 px-1.5">
+        <div className="brand-mark w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0">
+          <Smartphone className="w-5 h-5" />
         </div>
         {open && (
           <div className="min-w-0">
-            <div className="text-sm font-semibold leading-tight truncate"><span className="text-gradient">Emulator</span></div>
-            <div className="text-[10px] text-ink-400 leading-tight">Cloud Sandbox</div>
+            <div className="text-sm font-semibold leading-tight truncate">Emulator</div>
+            <div className="text-[11px] text-slate-400 leading-tight">Cloud sandbox</div>
           </div>
         )}
       </div>
@@ -417,8 +417,8 @@ function NavRail({ nav, onNav, serverInfo }) {
       </div>
 
       <div className="mt-auto flex flex-col gap-1">
-        <div className={`${open ? 'px-2.5' : 'px-0 justify-center'} flex items-center gap-2 py-2 text-[11px] text-ink-500`}>
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 live-dot flex-shrink-0" />
+        <div className={`${open ? 'px-2.5' : 'px-0 justify-center'} flex items-center gap-2 py-2 text-[11px] text-slate-400`}>
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 flex-shrink-0" />
           {open && <span>{serverInfo.free}/{serverInfo.maxConcurrent} devices free</span>}
         </div>
         <button onClick={() => onNav('settings')} title="Settings"
@@ -452,19 +452,19 @@ function TopBar({ nav, serverInfo, active, orientation, onStop }) {
   const Icon = meta.icon;
   const onSandbox = nav === 'sandbox';
   return (
-    <header className="relative z-10 border-b border-white/5 bg-ink-900/30 backdrop-blur-xl px-5 py-3 flex items-center justify-between gap-3">
-      <div className="flex items-center gap-3 min-w-0 animate-in-left">
-        <Icon className="w-5 h-5 text-teal-300 flex-shrink-0" />
+    <header className="top-bar relative z-10 px-6 py-3 flex items-center justify-between gap-3">
+      <div className="flex items-center gap-3 min-w-0">
+        <Icon className="w-5 h-5 text-slate-500 flex-shrink-0" />
         <div className="min-w-0">
           <h1 className="text-[15px] font-semibold leading-tight tracking-tight truncate">
             {onSandbox && active ? active.device : meta.title}
           </h1>
-          <p className="text-[11px] text-ink-400 leading-tight truncate">
+          <p className="text-[12px] text-slate-500 leading-tight truncate">
             {onSandbox && active ? `Android 11 · ${orientation} · ${active.sessionId.slice(0, 8)}…` : meta.sub}
           </p>
         </div>
       </div>
-      <div className="flex items-center gap-2 animate-in-right">
+      <div className="flex items-center gap-2">
         <span className="chip-emerald">
           <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 live-dot" /> Online
         </span>
@@ -487,10 +487,10 @@ function TopBar({ nav, serverInfo, active, orientation, onStop }) {
 // ===================================================================
 function PhoneStage({ session, showControls, rotating, onKey, onScreenshot, onRotate, orientation }) {
   return (
-    <div className="h-full flex items-stretch justify-center gap-3 min-h-0">
-      <div className="flex-1 min-w-0"><EmulatorViewer session={session} /></div>
+    <div className="h-full flex items-stretch justify-center gap-4 min-h-0">
+      <div className="flex-1 min-w-0 h-full"><EmulatorViewer session={session} /></div>
       {showControls && (
-        <div className="w-[64px] flex-shrink-0 panel p-2 flex flex-col gap-1.5 overflow-y-auto animate-in-right">
+        <div className="device-toolbar self-center w-[56px] flex-shrink-0 p-2 flex flex-col gap-1.5 overflow-y-auto animate-in-right">
           <button onClick={onScreenshot} className="tool-key"><Camera className="w-4 h-4" />Shot</button>
           <button onClick={onRotate} disabled={rotating} className="tool-key">
             {rotating ? <Loader2 className="w-4 h-4 animate-spin" /> : <RotateCcw className="w-4 h-4" />}
@@ -540,10 +540,10 @@ function EmulatorViewer({ session }) {
   return (
     <div
       ref={areaRef}
-      className="panel h-full min-h-0 p-4 bg-gradient-to-b from-ink-800/70 via-ink-900/70 to-black flex items-center justify-center overflow-hidden"
+      className="device-canvas h-full min-h-0 flex items-center justify-center overflow-hidden"
     >
       <div
-        className="relative overflow-hidden rounded-[26px] bg-black shadow-2xl shadow-black/70 ring-1 ring-white/10"
+        className="phone-window relative overflow-hidden bg-black"
         style={{ width: box.w || undefined, height: box.h || undefined }}
       >
         <iframe
@@ -564,16 +564,16 @@ function EmulatorViewer({ session }) {
 // ===================================================================
 function WelcomeStage({ pickedDevice, serverFree, loading, onStart }) {
   return (
-    <div className="panel h-full min-h-0 flex items-center justify-center p-6 bg-gradient-to-b from-ink-800/60 to-black overflow-hidden">
+    <div className="device-canvas h-full min-h-0 flex items-center justify-center p-6 overflow-hidden">
       <div className="relative animate-pop" style={{ aspectRatio: '720 / 1520', height: 'min(620px, 70vh)', maxWidth: '100%' }}>
-        <div className="absolute inset-0 rounded-[34px] bg-gradient-to-br from-teal-500/15 via-cyan-500/10 to-rose-500/15 ring-1 ring-white/10 overflow-hidden flex flex-col items-center justify-center text-center px-8">
-          <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/10 via-transparent to-rose-400/10" />
-          <div className="relative w-20 h-20 rounded-2xl bg-white/10 backdrop-blur-md border border-white/15 flex items-center justify-center mb-5 animate-floaty">
-            <Smartphone className="w-9 h-9 text-teal-200" />
+        <div className="preview-phone absolute inset-0 overflow-hidden flex flex-col items-center justify-center text-center px-8">
+          <div className="hidden" />
+          <div className="relative w-16 h-16 rounded-2xl bg-white/85 border border-slate-200 flex items-center justify-center mb-5">
+            <Smartphone className="w-8 h-8 text-slate-700" />
           </div>
           <h2 className="relative text-xl font-semibold mb-1.5">Ready to launch</h2>
-          <p className="relative text-sm text-ink-300 mb-6 max-w-[16rem]">
-            Pre-warmed emulators are waiting — no boot time. Press start to go live.
+          <p className="relative text-sm text-slate-500 mb-6 max-w-[16rem]">
+            Pick a device and start a live Android session.
           </p>
           <button onClick={onStart} disabled={!pickedDevice || serverFree === 0 || loading}
             className="relative btn-primary px-6 py-2.5">
@@ -601,9 +601,9 @@ function ConfigPanel({
 }) {
   const free = devices.find((d) => d.device === pickedDevice)?.free ?? 0;
   return (
-    <div className="space-y-4">
+    <div>
       {/* Configuration */}
-      <section className="panel-pad">
+      <section className="config-section">
         <SectionTitle icon={<Settings className="w-4 h-4" />}>Configuration</SectionTitle>
         <div className="mt-3 space-y-3">
           <div>
@@ -623,7 +623,7 @@ function ConfigPanel({
               <select className="select" disabled defaultValue="a11"><option value="a11">Android 11.0</option></select>
             </div>
             <div>
-              <label className="label">Timeout (min · max 30)</label>
+              <label className="label">Timeout</label>
               <input type="number" min={1} max={30} className="input" value={timeoutMin}
                 onChange={(e) => onTimeout(Math.min(30, Math.max(1, Number(e.target.value) || 1)))} disabled={!!active} />
             </div>
@@ -645,20 +645,20 @@ function ConfigPanel({
       </section>
 
       {/* Display toggles */}
-      <section className="panel-pad">
+      <section className="config-section">
         <SectionTitle icon={<LayoutGrid className="w-4 h-4" />}>Display</SectionTitle>
         <div className="mt-3 space-y-1">
-          <Toggle label="Device controls" desc="Hardware toolbar beside the phone" checked={showControls} onChange={onToggleControls} />
-          <Toggle label="Developer tools" desc="Network, battery, GPS simulation" checked={showDevTools} onChange={onToggleDevTools} />
+            <Toggle label="Device controls" desc="Hardware controls" checked={showControls} onChange={onToggleControls} />
+            <Toggle label="Developer tools" desc="Network and sensors" checked={showDevTools} onChange={onToggleDevTools} />
         </div>
       </section>
 
       {/* APK */}
-      <section className="panel-pad">
+      <section className="config-section">
         <SectionTitle icon={<Upload className="w-4 h-4" />}>Apps</SectionTitle>
         <div className="mt-3 space-y-3">
           <label className="block">
-            <div className="border-2 border-dashed border-white/10 rounded-xl p-4 text-center hover:border-teal-500/50 hover:bg-teal-500/5 transition-colors cursor-pointer">
+            <div className="upload-dropzone border-2 border-dashed rounded-md p-4 text-center transition-colors cursor-pointer">
               <input ref={apkInputRef} type="file" accept=".apk,application/vnd.android.package-archive"
                 onChange={onUpload} disabled={uploadProgress !== null} className="hidden" />
               <Upload className="w-5 h-5 text-ink-400 mx-auto mb-1.5" />
@@ -703,7 +703,7 @@ function ConfigPanel({
 
       {/* Active sessions */}
       {sessions.length > 0 && (
-        <section className="panel-pad">
+        <section className="config-section">
           <SectionTitle icon={<Clock className="w-4 h-4" />}>Active sessions</SectionTitle>
           <div className="mt-3 space-y-2">
             {sessions.map((s) => (
@@ -726,7 +726,7 @@ function ConfigPanel({
 
       {/* Developer tools / sensors */}
       {showDevTools && (
-        <section className="panel-pad">
+        <section className="config-section">
           <SectionTitle icon={<Wifi className="w-4 h-4" />}>Developer tools</SectionTitle>
           {!active ? (
             <p className="text-xs text-ink-500 mt-3">Start a session to simulate network, battery, and location.</p>
@@ -802,8 +802,8 @@ function ConfigPanel({
 // ===================================================================
 function SectionTitle({ icon, children }) {
   return (
-    <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-ink-300">
-      <span className="text-teal-300">{icon}</span>
+    <div className="section-title flex items-center gap-2 text-xs font-semibold uppercase tracking-wide">
+      <span className="section-title-icon">{icon}</span>
       {children}
     </div>
   );
@@ -811,12 +811,12 @@ function SectionTitle({ icon, children }) {
 
 function Toggle({ label, desc, checked, onChange }) {
   return (
-    <button onClick={onChange} className="w-full flex items-center justify-between gap-3 py-2 group">
+    <button onClick={onChange} className="toggle-row w-full flex items-center justify-between gap-3 py-2 group">
       <div className="text-left min-w-0">
         <div className="text-sm font-medium">{label}</div>
-        {desc && <div className="text-[11px] text-ink-500 truncate">{desc}</div>}
+        {desc && <div className="toggle-desc text-[11px]">{desc}</div>}
       </div>
-      <span className={`relative w-9 h-5 rounded-full transition-colors flex-shrink-0 ${checked ? 'bg-teal-500' : 'bg-ink-600'}`}>
+      <span className={`toggle-track relative w-9 h-5 rounded-full transition-colors flex-shrink-0 ${checked ? 'toggle-track-on' : 'toggle-track-off'}`}>
         <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all ${checked ? 'left-[18px]' : 'left-0.5'}`} />
       </span>
     </button>
@@ -1017,8 +1017,8 @@ function SettingsView({ timeoutMin, onTimeout, showControls, onToggleControls, s
         <section className="panel-pad">
           <SectionTitle icon={<LayoutGrid className="w-4 h-4" />}>Interface</SectionTitle>
           <div className="mt-2 space-y-1">
-            <Toggle label="Device controls" desc="Hardware toolbar beside the phone" checked={showControls} onChange={onToggleControls} />
-            <Toggle label="Developer tools" desc="Network, battery, GPS simulation" checked={showDevTools} onChange={onToggleDevTools} />
+          <Toggle label="Device controls" desc="Hardware controls" checked={showControls} onChange={onToggleControls} />
+          <Toggle label="Developer tools" desc="Network and sensors" checked={showDevTools} onChange={onToggleDevTools} />
           </div>
         </section>
         <section className="panel-pad">

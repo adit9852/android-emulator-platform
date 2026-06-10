@@ -623,9 +623,9 @@ function ConfigPanel({
               <select className="select" disabled defaultValue="a11"><option value="a11">Android 11.0</option></select>
             </div>
             <div>
-              <label className="label">Timeout (min)</label>
-              <input type="number" min={1} max={120} className="input" value={timeoutMin}
-                onChange={(e) => onTimeout(Number(e.target.value))} disabled={!!active} />
+              <label className="label">Timeout (min · max 30)</label>
+              <input type="number" min={1} max={30} className="input" value={timeoutMin}
+                onChange={(e) => onTimeout(Math.min(30, Math.max(1, Number(e.target.value) || 1)))} disabled={!!active} />
             </div>
           </div>
           {!active ? (
@@ -1009,9 +1009,9 @@ function SettingsView({ timeoutMin, onTimeout, showControls, onToggleControls, s
           <SectionTitle icon={<Clock className="w-4 h-4" />}>Session defaults</SectionTitle>
           <div className="mt-3 max-w-[220px]">
             <label className="label">Default timeout (min)</label>
-            <input type="number" min={1} max={120} className="input" value={timeoutMin}
-              onChange={(e) => onTimeout(Number(e.target.value))} />
-            <p className="text-[11px] text-ink-500 mt-1.5">Idle sessions end automatically after this many minutes.</p>
+            <input type="number" min={1} max={30} className="input" value={timeoutMin}
+              onChange={(e) => onTimeout(Math.min(30, Math.max(1, Number(e.target.value) || 1)))} />
+            <p className="text-[11px] text-ink-500 mt-1.5">Sessions end automatically after this many minutes (capped at 30).</p>
           </div>
         </section>
         <section className="panel-pad">

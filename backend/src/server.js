@@ -107,7 +107,11 @@ async function startServer() {
     // Initialize Docker connection
     await initializeDocker();
     logger.info('✓ Docker initialized');
-    
+
+    // Start the session reaper — frees slots when sessions time out or are
+    // abandoned (tab closed) and reconciles orphaned slots back into the pool.
+    require('./utils/reaper').startReaper();
+
     // Start server
     app.listen(PORT, '0.0.0.0', () => {
       logger.info(`✓ Server running on port ${PORT}`);

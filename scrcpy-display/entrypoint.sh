@@ -35,7 +35,8 @@ while true; do
   adb -s "$EMU" wait-for-device >/dev/null 2>&1
   echo "[scrcpy-display] starting scrcpy for $EMU"
   scrcpy --serial "$EMU" \
-         --fullscreen --window-borderless --stay-awake \
+         --window-x 0 --window-y 0 --window-width "$XW" --window-height "$XH" \
+         --window-borderless --stay-awake \
          --max-size "$MAXSIZE" --max-fps 60 --render-driver=opengl \
          --window-title "$EMU" >/var/log/scrcpy.log 2>&1 &
   SPID=$!
@@ -44,7 +45,12 @@ while true; do
   # events that caused phantom taps, and it's a single shot — nothing repeats.
   for i in 1 2 3 4 5 6 7 8; do
     WID=$(xdotool search --class scrcpy 2>/dev/null | head -1)
-    if [ -n "$WID" ]; then xdotool windowfocus "$WID" >/dev/null 2>&1; break; fi
+    if [ -n "$WID" ]; then
+      xdotool windowsize "$WID" "$XW" "$XH" >/dev/null 2>&1 || true
+      xdotool windowmove "$WID" 0 0 >/dev/null 2>&1 || true
+      xdotool windowfocus "$WID" >/dev/null 2>&1 || true
+      break
+    fi
     sleep 1
   done
   wait "$SPID"

@@ -14,6 +14,7 @@ const { set, get, del, sadd, srem, smembers } = require('../utils/redis');
 const { acquire, release, available, availableByDevice, listAll } = require('../utils/slotPool');
 const { query } = require('../database/init');
 const logger = require('../utils/logger');
+const { MAX_TIMEOUT_MIN: MAX_SESSION_MIN } = require('../utils/reaper');
 
 const ACTIVE_KEY = 'active_sessions';
 const APKS_DIR = process.env.UPLOAD_DIR || '/app/apks';
@@ -134,6 +135,16 @@ async function disableGoogleFeed(containerName) {
 async function resetSlot(containerName, device, slotId) {
   await disableGoogleFeed(containerName);
 
+  // Nexus Launcher can occasionally persist a half-open all-apps layout after
+  // an emulator crash/recreate. Clear it before handing the slot to a user so
+  // HOME lands on a clean full-screen launcher.
+  try {
+    await adb(containerName, ['am', 'force-stop', 'com.google.android.apps.nexuslauncher']);
+    await adb(containerName, ['pm', 'clear', 'com.google.android.apps.nexuslauncher']);
+  } catch (err) {
+    logger.warn(`launcher reset on ${containerName} failed: ${err.message}`);
+  }
+
   try {
     await adb(containerName, ['input', 'keyevent', 'KEYCODE_HOME']);
   } catch (err) {
@@ -200,7 +211,14 @@ router.get('/pool', async (req, res) => {
 // ============================================================
 
 router.post('/session', async (req, res) => {
-  const { device = null, timeout = 30 } = req.body || {};
+  const device = (req.body || {}).device ?? null;
+  // Hard-cap the session lifetime at MAX_SESSION_MIN. The reaper enforces the
+  // same ceiling, and the Redis TTL below auto-expires the record to match.
+  const reqTimeout = Number((req.body || {}).timeout);
+  const timeout = Math.min(
+    Number.isFinite(reqTimeout) && reqTimeout > 0 ? reqTimeout : MAX_SESSION_MIN,
+    MAX_SESSION_MIN
+  );
   const sessionId = uuidv4();
 
   const slot = await acquire(device);
@@ -213,6 +231,25 @@ router.post('/session', async (req, res) => {
       freeByDevice: await availableByDevice(),
     });
   }
+
+  // Register the reservation IMMEDIATELY — before the slow resetSlot/DB work — so
+  // the reaper's orphan reconciler never mistakes an in-setup slot for a leak.
+  const record = {
+    sessionId,
+    slotId: slot.slotId,
+    containerName: slot.containerName,
+    vncPort: slot.vncPort,
+    adbPort: slot.adbPort,
+    device: slot.device,
+    status: 'active',
+    createdAt: new Date().toISOString(),
+    timeoutMinutes: timeout,
+  };
+  // TTL is the timeout + a small buffer so the reaper's age-check can end the
+  // session cleanly AT the cap (the record is still readable); if the reaper ever
+  // misses it, the TTL + orphan-reconciler are the backstop.
+  await set(`session:${sessionId}`, record, timeout * 60 + 90);
+  await sadd(ACTIVE_KEY, sessionId);
 
   try {
     await resetSlot(slot.containerName, slot.device, slot.slotId);
@@ -227,31 +264,20 @@ router.post('/session', async (req, res) => {
       ]
     );
 
-    const record = {
-      sessionId,
-      slotId: slot.slotId,
-      containerName: slot.containerName,
-      vncPort: slot.vncPort,
-      adbPort: slot.adbPort,
-      device: slot.device,
-      status: 'active',
-      createdAt: new Date().toISOString(),
-    };
-    await set(`session:${sessionId}`, record, timeout * 60);
-    await sadd(ACTIVE_KEY, sessionId);
-
-    logger.info(`Session ${sessionId} → slot ${slot.slotId} (${slot.device})`);
+    logger.info(`Session ${sessionId} → slot ${slot.slotId} (${slot.device}), ${timeout}m`);
     res.status(201).json({
       ...record,
       // Same-origin stream path so it works behind TLS (no mixed content) and
       // through nginx. nginx maps /stream/<slotId>/ → scrcpy-<slotId>:6080.
       vncUrl: `/stream/${slot.slotId}/`,
-      timeoutMinutes: timeout,
       message: `Connected to ${slot.device}.`,
     });
   } catch (err) {
     logger.error('Error claiming slot:', err);
+    // Roll back the reservation so the slot returns to the pool cleanly.
     await release(slot);
+    await del(`session:${sessionId}`);
+    await srem(ACTIVE_KEY, sessionId);
     res.status(500).json({ error: 'Failed to claim emulator slot', details: err.message });
   }
 });

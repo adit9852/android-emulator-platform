@@ -198,9 +198,9 @@ services:
     container_name: emulator-scrcpy-1
     environment:
       EMU: "android-emulator-1:5555"
-      MAX_SIZE: "1140"
-      XVFB_W: "540"
-      XVFB_H: "1140"
+      MAX_SIZE: "1520"
+      XVFB_W: "720"
+      XVFB_H: "1520"
     ports:
       - "6090:6080"
     depends_on:
@@ -214,9 +214,9 @@ services:
     container_name: emulator-scrcpy-2
     environment:
       EMU: "android-emulator-2:5555"
-      MAX_SIZE: "1140"
-      XVFB_W: "540"
-      XVFB_H: "1140"
+      MAX_SIZE: "1520"
+      XVFB_W: "720"
+      XVFB_H: "1520"
     ports:
       - "6091:6080"
     depends_on:
@@ -230,9 +230,9 @@ services:
     container_name: emulator-scrcpy-3
     environment:
       EMU: "android-emulator-3:5555"
-      MAX_SIZE: "1140"
-      XVFB_W: "540"
-      XVFB_H: "1140"
+      MAX_SIZE: "1520"
+      XVFB_W: "720"
+      XVFB_H: "1520"
     ports:
       - "6092:6080"
     depends_on:
